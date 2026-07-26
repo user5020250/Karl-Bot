@@ -15,6 +15,35 @@ class BankGroup(app_commands.Group):
         super().__init__(name="bank", description="Manage your bank capacity")
         self.cog = cog
 
+    # ------------------------------
+    # /bank info
+    # ------------------------------
+    @app_commands.command(name="info", description="View your bank information")
+    async def info(self, interaction: discord.Interaction):
+        db = self.cog.db
+        user = await db.get_user(interaction.user.id)
+
+        capacity = bank_capacity_for(user)
+        next_capacity = capacity + config.BANK_UPG_CAPACITY_INCREASE
+        upgrade_cost = tier_cost(user["prestige"])
+
+        embed = make_embed(
+            "Bank Information",
+            (
+                f"Current Bank Balance: {money(user['bank'])}\n"
+                f"Current Capacity: {money(capacity)}\n"
+                f"Available Space: {money(capacity - user['bank'])}\n\n"
+                f"Next Upgrade Cost: {money(upgrade_cost)}\n"
+                f"Capacity Increase: {money(config.BANK_UPG_CAPACITY_INCREASE)}\n"
+                f"New Capacity: {money(next_capacity)}"
+            ),
+        )
+
+        await interaction.response.send_message(embed=embed)
+
+    # ------------------------------
+    # /bank upg
+    # ------------------------------
     @app_commands.command(name="upg", description="Upgrade your bank capacity")
     async def upg(self, interaction: discord.Interaction):
         db = self.cog.db
