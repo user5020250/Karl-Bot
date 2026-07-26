@@ -12,19 +12,19 @@
     "speed": 9
   },
   {
-    "species": "Manok",
+    "species": "Chicken",
     "cost": 150,
     "description": "A native backyard chicken, kept for eggs, company, and the occasional early morning wake-up call.",
     "speed": 5
   },
   {
-    "species": "Itik",
+    "species": "Duck",
     "cost": 130,
     "description": "A duck that waddles around the yard, a common sight in provincial households with a bit of open space.",
     "speed": 3
   },
   {
-    "species": "Kalapati",
+    "species": "Pigeon",
     "cost": 250,
     "description": "A homing pigeon — pigeon-keeping and racing is a beloved rooftop hobby in many Filipino neighborhoods.",
     "speed": 8
@@ -36,25 +36,25 @@
     "speed": 7
   },
   {
-    "species": "Kuneho",
+    "species": "Rabbit",
     "cost": 300,
     "description": "A soft, quick-footed rabbit, a favorite gentle pet for kids in the household.",
     "speed": 7
   },
   {
-    "species": "Isdang Ginto",
+    "species": "Gold Fish",
     "cost": 80,
     "description": "A goldfish kept in a bowl or backyard pond, low-maintenance and a common starter pet.",
     "speed": 2
   },
   {
-    "species": "Betta",
+    "species": "Fish",
     "cost": 100,
     "description": "A vibrant, long-finned fighting fish kept solo in a small tank or jar — a household staple.",
     "speed": 4
   },
   {
-    "species": "Pagong",
+    "species": "Turtle",
     "cost": 150,
     "description": "A slow but steady pet turtle, often kept in a tub or small backyard pond for decades.",
     "speed": 1
