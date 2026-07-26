@@ -68,13 +68,15 @@ CREATE TABLE IF NOT EXISTS pets (
 );
 
 CREATE TABLE IF NOT EXISTS jobs (
-    job_key TEXT PRIMARY KEY,
+    guild_id INTEGER NOT NULL,
+    job_key TEXT NOT NULL,
     name TEXT NOT NULL,
     pay_min INTEGER NOT NULL,
     pay_max INTEGER NOT NULL,
     stock INTEGER NOT NULL,
     max_stock INTEGER NOT NULL,
-    next_refresh REAL NOT NULL
+    next_refresh REAL NOT NULL,
+    PRIMARY KEY (guild_id, job_key)
 );
 
 CREATE TABLE IF NOT EXISTS events (
@@ -123,6 +125,33 @@ class Database:
                 await self.conn.commit()
             except Exception:
                 pass  # column already exists
+
+        # The jobs table used to be keyed globally by job_key alone, which meant
+        # job stock (e.g. "only 1 Programmer slot") was shared across every
+        # Discord server the bot is in instead of being per-server. Rebuild it
+        # with a (guild_id, job_key) key. Job stock is regenerating/ephemeral
+        # data (it refills on a timer), so it's safe to reset rather than try
+        # to guess which guild old rows belonged to.
+        cur = await self.conn.execute("PRAGMA table_info(jobs)")
+        cols = [row[1] for row in await cur.fetchall()]
+        if "guild_id" not in cols:
+            await self.conn.executescript(
+                """
+                DROP TABLE IF EXISTS jobs;
+                CREATE TABLE jobs (
+                    guild_id INTEGER NOT NULL,
+                    job_key TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    pay_min INTEGER NOT NULL,
+                    pay_max INTEGER NOT NULL,
+                    stock INTEGER NOT NULL,
+                    max_stock INTEGER NOT NULL,
+                    next_refresh REAL NOT NULL,
+                    PRIMARY KEY (guild_id, job_key)
+                );
+                """
+            )
+            await self.conn.commit()
 
     async def close(self):
         if self.conn:
@@ -297,26 +326,60 @@ class Database:
     async def remove_pet(self, pet_id: int):
         await self.execute("DELETE FROM pets WHERE pet_id = ?", (pet_id,))
 
-    # -- jobs ----------------------------------------------------------------
-    async def get_job(self, job_key: str):
-        return await self.fetchone("SELECT * FROM jobs WHERE job_key = ?", (job_key,))
-
-    async def get_all_jobs(self):
-        return await self.fetchall("SELECT * FROM jobs")
-
-    async def upsert_job(self, job_key, name, pay_min, pay_max, stock, max_stock, next_refresh):
-        await self.execute(
-            "INSERT INTO jobs (job_key, name, pay_min, pay_max, stock, max_stock, next_refresh) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?) "
-            "ON CONFLICT(job_key) DO NOTHING",
-            (job_key, name, pay_min, pay_max, stock, max_stock, next_refresh),
+    # -- jobs (per-guild) ------------------------------------------------------
+    async def get_job(self, guild_id: int, job_key: str):
+        return await self.fetchone(
+            "SELECT * FROM jobs WHERE guild_id = ? AND job_key = ?", (guild_id, job_key)
         )
 
-    async def set_job_stock(self, job_key, stock, next_refresh):
+    async def get_all_jobs(self, guild_id: int):
+        return await self.fetchall("SELECT * FROM jobs WHERE guild_id = ?", (guild_id,))
+
+    async def upsert_job(self, guild_id, job_key, name, pay_min, pay_max, stock, max_stock, next_refresh):
         await self.execute(
-            "UPDATE jobs SET stock = ?, next_refresh = ? WHERE job_key = ?",
-            (stock, next_refresh, job_key),
+            "INSERT INTO jobs (guild_id, job_key, name, pay_min, pay_max, stock, max_stock, next_refresh) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(guild_id, job_key) DO NOTHING",
+            (guild_id, job_key, name, pay_min, pay_max, stock, max_stock, next_refresh),
         )
+
+    async def reset_job_stock(self, guild_id, job_key, max_stock, next_refresh):
+        """Used by the periodic refresh loop to reset a job back to full stock."""
+        await self.execute(
+            "UPDATE jobs SET stock = ?, next_refresh = ? WHERE guild_id = ? AND job_key = ?",
+            (max_stock, next_refresh, guild_id, job_key),
+        )
+
+    async def clamp_job_stock(self, guild_id, job_key, max_stock):
+        """Used when jobs.json lowers max_stock; clamps existing stock down
+        immediately instead of waiting for the next scheduled refresh."""
+        await self.execute(
+            "UPDATE jobs SET stock = MIN(stock, ?), max_stock = ? WHERE guild_id = ? AND job_key = ?",
+            (max_stock, max_stock, guild_id, job_key),
+        )
+
+    async def try_take_job(self, guild_id: int, job_key: str) -> bool:
+        """Atomically claim one open slot for a job, if any are available.
+
+        Returns True if a slot was claimed, False if the job was already
+        full. This is a single conditional UPDATE (not a read-then-write),
+        so two users applying for the last slot at the same instant cannot
+        both succeed - only one UPDATE will affect a row."""
+        cur = await self.conn.execute(
+            "UPDATE jobs SET stock = stock - 1 WHERE guild_id = ? AND job_key = ? AND stock > 0",
+            (guild_id, job_key),
+        )
+        await self.conn.commit()
+        return cur.rowcount > 0
+
+    async def release_job(self, guild_id: int, job_key: str):
+        """Atomically give back one slot for a job (e.g. on resign), capped
+        at the job's max_stock so it can never overflow."""
+        await self.conn.execute(
+            "UPDATE jobs SET stock = MIN(stock + 1, max_stock) WHERE guild_id = ? AND job_key = ?",
+            (guild_id, job_key),
+        )
+        await self.conn.commit()
 
     # -- events --------------------------------------------------------------
     async def set_event_channel(self, guild_id: int, channel_id: int):
