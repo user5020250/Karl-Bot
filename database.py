@@ -96,6 +96,11 @@ CREATE TABLE IF NOT EXISTS guild_config (
     guild_id INTEGER PRIMARY KEY,
     event_channel_id INTEGER
 );
+
+CREATE TABLE IF NOT EXISTS jackpot (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    amount INTEGER NOT NULL DEFAULT 0
+);
 """
 
 
@@ -109,6 +114,8 @@ class Database:
         self.conn = await aiosqlite.connect(self.path)
         self.conn.row_factory = aiosqlite.Row
         await self.conn.executescript(SCHEMA)
+        await self.conn.commit()
+        await self.conn.execute("INSERT OR IGNORE INTO jackpot (id, amount) VALUES (1, 0)")
         await self.conn.commit()
         await self._migrate()
 
@@ -435,6 +442,36 @@ class Database:
             "ORDER BY event_id DESC LIMIT 1",
             (channel_id,),
         )
+
+    # -- jackpot pool ------------------------------------------------------
+    async def get_jackpot(self) -> int:
+        row = await self.fetchone("SELECT amount FROM jackpot WHERE id = 1")
+        return row["amount"] if row else 0
+
+    async def add_to_jackpot(self, amount: int):
+        """Feed lost gambling bets into the shared jackpot pool."""
+        if amount <= 0:
+            return
+        await self.execute(
+            "UPDATE jackpot SET amount = amount + ? WHERE id = 1", (amount,)
+        )
+
+    async def take_jackpot(self) -> int:
+        """Atomically empty the jackpot pool and return what was taken.
+
+        Uses a compare-and-swap (read the current amount, then UPDATE only if
+        it hasn't changed) so two simultaneous /777 wins can't both drain the
+        same pool. In the astronomically rare case of a genuine race, the
+        loser of the race gets 0 back rather than risking a double payout."""
+        row = await self.fetchone("SELECT amount FROM jackpot WHERE id = 1")
+        current = row["amount"] if row else 0
+        if current <= 0:
+            return 0
+        cur = await self.conn.execute(
+            "UPDATE jackpot SET amount = 0 WHERE id = 1 AND amount = ?", (current,)
+        )
+        await self.conn.commit()
+        return current if cur.rowcount > 0 else 0
 
     # -- leaderboard -----------------------------------------------------
     async def get_leaderboard(self, limit: int = 10):
