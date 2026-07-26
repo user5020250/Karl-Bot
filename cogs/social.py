@@ -68,6 +68,7 @@ HELP_CATEGORIES = {
         ("/withdraw", "Withdraw cash from your bank"),
         ("/interest", "Claim your daily bank interest"),
         ("/bank upg", "Upgrade your bank capacity"),
+        ("/bank info", "View your bank information"),
     ],
     "Gambling": [
         ("/scatter", "Try your luck at Scatter"),
@@ -81,9 +82,14 @@ HELP_CATEGORIES = {
         ("/pet disowned", "Abandon a pet"),
         ("/feed", "Feed a pet"),
         ("/play", "Play with a pet"),
+        ("/pet race challeneg", "Challene another player to a pet race"),
+        ("/pet race accept", "Accept a pending race challenge"),
+        ("/pet race decline", "Decline a pending race challenge"),
+        ("/pet race cancel", "Cancel a race challenge you sent"),
     ],
     "Prestige": [
-        ("/prestige", "Prestige for permanent bonuses (costs money only)"),
+        ("/prestige up", "Prestige for permanent bonuses (costs money only)"),
+        ("/prestige info", "View prestige information"),
     ],
     "Events": [
         ("/event setchannel", "Set the channel for random events"),
