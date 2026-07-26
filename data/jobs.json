@@ -1,0 +1,10 @@
+[
+  {"key": "cashier", "name": "Cashier", "pay_min": 2000, "pay_max": 4000, "max_stock": 5},
+  {"key": "delivery_rider", "name": "Delivery Rider", "pay_min": 2500, "pay_max": 5000, "max_stock": 5},
+  {"key": "call_center_agent", "name": "Call Center Agent", "pay_min": 3000, "pay_max": 6000, "max_stock": 4},
+  {"key": "construction_worker", "name": "Construction Worker", "pay_min": 3500, "pay_max": 7000, "max_stock": 3},
+  {"key": "office_clerk", "name": "Office Clerk", "pay_min": 2500, "pay_max": 5500, "max_stock": 4},
+  {"key": "security_guard", "name": "Security Guard", "pay_min": 2200, "pay_max": 4500, "max_stock": 5},
+  {"key": "programmer", "name": "Programmer", "pay_min": 5000, "pay_max": 10000, "max_stock": 2},
+  {"key": "teacher", "name": "Teacher", "pay_min": 4000, "pay_max": 8000, "max_stock": 3}
+]

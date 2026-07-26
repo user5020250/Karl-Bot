@@ -1,0 +1,9 @@
+[
+  {"species": "Dog", "cost": 5000, "description": "Loyal and easy to keep happy."},
+  {"species": "Cat", "cost": 5000, "description": "Independent, needs occasional attention."},
+  {"species": "Rabbit", "cost": 4000, "description": "Cheap and low maintenance."},
+  {"species": "Parrot", "cost": 7000, "description": "Talkative and social."},
+  {"species": "Hamster", "cost": 3000, "description": "Tiny and inexpensive."},
+  {"species": "Tiger", "cost": 25000, "description": "Expensive, prestigious, hard to keep fed."},
+  {"species": "Dragon", "cost": 100000, "description": "Extremely rare and costly."}
+]
