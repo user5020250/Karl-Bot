@@ -23,10 +23,24 @@ from utils.economy import track_activity
 # runs raw SQL (used once below, in ensure_schema, to add new pet columns).
 # If your db wrapper names this differently, just rename that one call.
 #
-# NEW CONFIG VALUES (both have safe fallbacks via getattr, so nothing
+# NEW CONFIG VALUES (all have safe fallbacks via getattr, so nothing
 # breaks if you haven't added them to config.py yet):
-#   config.RENAME_COST          -> cash cost to rename a pet (default 250)
-#   config.RACE_CHALLENGE_TIMEOUT -> seconds a race challenge stays open (default 120)
+#   config.RENAME_COST               -> cash cost to rename a pet (default 250)
+#   config.RACE_CHALLENGE_TIMEOUT    -> seconds a race challenge stays open (default 120)
+#   config.PET_STOCK_REFRESH_MINUTES -> how often shop stock re-rolls (default 30)
+#
+# SHOP STOCK: each species is either in stock (1) or sold out (0), shared
+# across the whole server, and re-rolled 50/50 on a timer (self.pet_stock in
+# PetsCog, refreshed by stock_refresh_loop). Stock resets to a fresh random
+# roll on bot restart since it's kept in memory, not the database — say the
+# word if you'd rather it persist across restarts.
+#
+# Ownership itself is NOT limited by species — a player can own multiple
+# pets of multiple species, up to config.MAX_PETS_OWNED total. Stock only
+# gates how many of a given species can be *bought* before the next restock.
+#
+# RACING: outcomes are a pure 50/50 coin flip (see PetsCog._resolve_race) —
+# no stat, level, or species advantage either way.
 # ---------------------------------------------------------------------------
 
 _PETS_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "pets.json")
@@ -39,11 +53,25 @@ PET_SHOP_BY_SPECIES = {p["species"].lower(): p for p in PET_SHOP}
 with open(_FOOD_PATH, "r", encoding="utf-8") as f:
     FOOD_SHOP = json.load(f)
 FOOD_BY_NAME = {item["name"].lower(): item for item in FOOD_SHOP}
-FOOD_CHOICES = [app_commands.Choice(name=item["name"], value=item["name"]) for item in FOOD_SHOP][:25]
+
+
+def food_is_valid_for(food_item: dict, species: str) -> bool:
+    """Empty species list on a food item means it's universal (fits any pet)."""
+    allowed = food_item.get("species") or []
+    if not allowed:
+        return True
+    return species in allowed
+
+
+def get_food_options(species: str = None) -> list:
+    if not species:
+        return FOOD_SHOP
+    return [f for f in FOOD_SHOP if food_is_valid_for(f, species)]
 
 DEATH_DAYS = 7  # fully unfed for this many days -> pet dies
 RENAME_COST = getattr(config, "RENAME_COST", 250)
 RACE_CHALLENGE_TIMEOUT = getattr(config, "RACE_CHALLENGE_TIMEOUT", 120)
+STOCK_REFRESH_MINUTES = getattr(config, "PET_STOCK_REFRESH_MINUTES", 30)
 
 
 def compute_hunger(last_fed: float) -> int:
@@ -117,22 +145,34 @@ def parse_bet(balance: int, raw: str) -> int:
 # Shop embeds + category dropdown
 # ---------------------------------------------------------------------------
 
-def build_pet_shop_embed() -> discord.Embed:
-    lines = [f"**{p['species']}** — {money(p['cost'])}\n{p['description']}" for p in PET_SHOP]
-    return make_embed("Pet Shop — Pets", "\n\n".join(lines))
+def build_pet_shop_embed(stock: dict, next_restock: float = None) -> discord.Embed:
+    lines = []
+    for p in PET_SHOP:
+        in_stock = stock.get(p["species"], 0) > 0
+        status = "✅ In Stock (1 left)" if in_stock else "❌ Out of Stock"
+        lines.append(f"**{p['species']}** — {money(p['cost'])} [{status}]\n{p['description']}")
+    desc = "\n\n".join(lines)
+    if next_restock:
+        desc += f"\n\nStock refreshes every {STOCK_REFRESH_MINUTES} minutes. Next restock: <t:{int(next_restock)}:R>"
+    return make_embed("Pet Shop — Pets", desc)
 
 
 def build_food_shop_embed() -> discord.Embed:
-    lines = [
-        f"**{item['name']}** — {money(item['cost'])} "
-        f"(+{item['hunger']} hunger, +{item['exp']} EXP)\n{item['description']}"
-        for item in FOOD_SHOP
-    ]
+    lines = []
+    for item in FOOD_SHOP:
+        allowed = item.get("species") or []
+        for_line = "Any pet" if not allowed else ", ".join(allowed)
+        lines.append(
+            f"**{item['name']}** — {money(item['cost'])} "
+            f"(+{item['hunger']} hunger, +{item['exp']} EXP)\n"
+            f"*For: {for_line}*\n{item['description']}"
+        )
     return make_embed("Pet Shop — Food", "\n\n".join(lines))
 
 
 class ShopCategorySelect(discord.ui.Select):
-    def __init__(self):
+    def __init__(self, cog: "PetsCog"):
+        self.cog = cog
         options = [
             discord.SelectOption(label="Pets", description="Adoptable household pets", value="pets", emoji="🐾"),
             discord.SelectOption(label="Food", description="Food & treats to feed your pets", value="food", emoji="🍖"),
@@ -140,14 +180,17 @@ class ShopCategorySelect(discord.ui.Select):
         super().__init__(placeholder="Choose a category...", options=options, min_values=1, max_values=1)
 
     async def callback(self, interaction: discord.Interaction):
-        embed = build_pet_shop_embed() if self.values[0] == "pets" else build_food_shop_embed()
+        if self.values[0] == "pets":
+            embed = build_pet_shop_embed(self.cog.pet_stock, self.cog.next_restock)
+        else:
+            embed = build_food_shop_embed()
         await interaction.response.edit_message(embed=embed, view=self.view)
 
 
 class ShopView(discord.ui.View):
-    def __init__(self):
+    def __init__(self, cog: "PetsCog"):
         super().__init__(timeout=120)
-        self.add_item(ShopCategorySelect())
+        self.add_item(ShopCategorySelect(cog))
 
 
 # ---------------------------------------------------------------------------
@@ -376,9 +419,14 @@ class PetsCog(commands.Cog):
         self.bot = bot
         self.db = bot.db
         self.pending_races = {}  # opponent_id -> {challenger, challenger_pet, bet, created}
+        # Shop stock: each species is either in stock (1) or sold out (0),
+        # shared across all users, re-rolled on a timer.
+        self.pet_stock = {p["species"]: random.randint(0, 1) for p in PET_SHOP}
+        self.next_restock = time.time() + STOCK_REFRESH_MINUTES * 60
         self.pet_group = PetGroup(self)
         bot.tree.add_command(self.pet_group)
         self.pet_decay_loop.start()
+        self.stock_refresh_loop.start()
 
     async def cog_load(self):
         await self.ensure_schema()
@@ -400,25 +448,19 @@ class PetsCog(commands.Cog):
 
     def cog_unload(self):
         self.pet_decay_loop.cancel()
+        self.stock_refresh_loop.cancel()
 
     def _resolve_race(self, pet_a: dict, pet_b: dict, owner_a: int, owner_b: int):
-        """Weighted race outcome based on species speed, level, happiness, hunger + randomness."""
-        def score(pet):
-            base_speed = PET_SHOP_BY_SPECIES.get(pet["species"].lower(), {}).get("speed", 5)
-            return (
-                base_speed * 10
-                + pet.get("level", 1) * 5
-                + pet["happiness"] / 2
-                + pet["hunger"] / 5
-                + random.randint(1, 30)
-            )
-
-        score_a = score(pet_a)
-        score_b = score(pet_b)
-
-        if score_a >= score_b:
+        """Pure 50/50 coin flip — no stat advantages, every race is a toss-up."""
+        if random.random() < 0.5:
             return pet_a, pet_b, owner_a, owner_b
         return pet_b, pet_a, owner_b, owner_a
+
+    @tasks.loop(minutes=STOCK_REFRESH_MINUTES)
+    async def stock_refresh_loop(self):
+        await self.bot.wait_until_ready()
+        self.pet_stock = {p["species"]: random.randint(0, 1) for p in PET_SHOP}
+        self.next_restock = time.time() + STOCK_REFRESH_MINUTES * 60
 
     @tasks.loop(hours=1)
     async def pet_decay_loop(self):
@@ -435,8 +477,8 @@ class PetsCog(commands.Cog):
     @app_commands.command(name="petshop", description="Browse the pet shop")
     async def petshop_cmd(self, interaction: discord.Interaction):
         await track_activity(self.db, interaction.user.id)
-        embed = build_pet_shop_embed()
-        await interaction.response.send_message(embed=embed, view=ShopView())
+        embed = build_pet_shop_embed(self.pet_stock, self.next_restock)
+        await interaction.response.send_message(embed=embed, view=ShopView(self))
 
     @app_commands.command(name="adopt", description="Adopt a pet")
     @app_commands.describe(species="The species to adopt", name="A name for your new pet")
@@ -446,16 +488,32 @@ class PetsCog(commands.Cog):
             await interaction.response.send_message(embed=make_embed("Error", "That species is not available in the pet shop."), ephemeral=True)
             return
 
+        pet_def = PET_SHOP_BY_SPECIES[species_key]
+
+        if self.pet_stock.get(pet_def["species"], 0) <= 0:
+            await interaction.response.send_message(
+                embed=make_embed(
+                    "Error",
+                    f"**{pet_def['species']}** is currently out of stock. "
+                    f"Stock refreshes every {STOCK_REFRESH_MINUTES} minutes — next restock <t:{int(self.next_restock)}:R>.",
+                ),
+                ephemeral=True,
+            )
+            return
+
         owned = await self.db.get_pets(interaction.user.id)
         if len(owned) >= config.MAX_PETS_OWNED:
             await interaction.response.send_message(embed=make_embed("Error", f"You may only own up to `{config.MAX_PETS_OWNED}` pets."), ephemeral=True)
             return
 
-        pet_def = PET_SHOP_BY_SPECIES[species_key]
         user = await self.db.get_user(interaction.user.id)
         if user["balance"] < pet_def["cost"]:
             await interaction.response.send_message(embed=make_embed("Error", "You do not have enough cash on hand."), ephemeral=True)
             return
+
+        # Consume the single stock slot immediately so two people can't both
+        # buy the same last-in-stock pet in a race condition.
+        self.pet_stock[pet_def["species"]] = 0
 
         await self.db.add_balance(interaction.user.id, -pet_def["cost"])
         await self.db.add_pet(interaction.user.id, pet_def["species"], name)
@@ -467,9 +525,28 @@ class PetsCog(commands.Cog):
         embed = make_embed("Pet Adopted", desc)
         await interaction.response.send_message(embed=embed)
 
+    async def _food_autocomplete(self, interaction: discord.Interaction, current: str):
+        pet_id = interaction.namespace.pet_id
+        species = None
+        if pet_id is not None:
+            try:
+                pet = await self.db.get_pet(pet_id)
+            except Exception:
+                pet = None
+            if pet:
+                species = pet["species"]
+
+        options = get_food_options(species)
+        current_lower = current.lower()
+        return [
+            app_commands.Choice(name=item["name"], value=item["name"])
+            for item in options
+            if current_lower in item["name"].lower()
+        ][:25]
+
     @app_commands.command(name="feed", description="Feed a pet")
     @app_commands.describe(pet_id="The ID of the pet to feed (see /profile Pets)", food="What to feed it")
-    @app_commands.choices(food=FOOD_CHOICES)
+    @app_commands.autocomplete(food=_food_autocomplete)
     async def feed_cmd(self, interaction: discord.Interaction, pet_id: int, food: str):
         if not await check_cooldown(interaction, self.db, "feed", config.COOLDOWNS["feed"]):
             return
@@ -482,6 +559,18 @@ class PetsCog(commands.Cog):
         food_item = FOOD_BY_NAME.get(food.lower())
         if not food_item:
             await interaction.response.send_message(embed=make_embed("Error", "That food isn't sold in the shop."), ephemeral=True)
+            return
+
+        if not food_is_valid_for(food_item, pet["species"]):
+            suitable = ", ".join(f["name"] for f in get_food_options(pet["species"]))
+            await interaction.response.send_message(
+                embed=make_embed(
+                    "Error",
+                    f"**{food_item['name']}** isn't suitable for a {pet['species']}.\n"
+                    f"Try: {suitable}",
+                ),
+                ephemeral=True,
+            )
             return
 
         user = await self.db.get_user(interaction.user.id)
