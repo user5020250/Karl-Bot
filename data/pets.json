@@ -1,62 +1,52 @@
 [
   {
-    "species": "Aspin",
-    "cost": 300,
-    "description": "Short for 'Asong Pinoy' — the native Filipino dog, loyal and street-smart, found guarding almost every household.",
-    "speed": 8
+    "species": "Native Dog",
+    "cost": 3000,
+    "description": "A loyal, street-smart mixed-breed dog, found guarding almost every household."
   },
   {
-    "species": "Puspin",
-    "cost": 200,
-    "description": "Short for 'Pusang Pinoy' — the native Filipino cat, independent and always finding a warm spot on the roof or sofa.",
-    "speed": 9
+    "species": "Native Cat",
+    "cost": 2000,
+    "description": "An independent household cat, always finding a warm spot to nap in."
   },
   {
     "species": "Chicken",
-    "cost": 150,
-    "description": "A native backyard chicken, kept for eggs, company, and the occasional early morning wake-up call.",
-    "speed": 5
+    "cost": 1500,
+    "description": "A backyard chicken, kept for eggs, company, and the occasional early wake-up call."
   },
   {
     "species": "Duck",
-    "cost": 130,
-    "description": "A duck that waddles around the yard, a common sight in provincial households with a bit of open space.",
-    "speed": 3
+    "cost": 1300,
+    "description": "A duck that waddles around the yard, common in households with a bit of open space."
   },
   {
     "species": "Pigeon",
-    "cost": 250,
-    "description": "A homing pigeon — pigeon-keeping and racing is a beloved rooftop hobby in many Filipino neighborhoods.",
-    "speed": 8
+    "cost": 2500,
+    "description": "A homing pigeon — pigeon-keeping is a beloved rooftop hobby in many neighborhoods."
   },
   {
     "species": "Lovebird",
-    "cost": 350,
-    "description": "A small, colorful caged bird — 'ibon' collecting is a popular pastime, often kept in pairs.",
-    "speed": 7
+    "cost": 3500,
+    "description": "A small, colorful caged bird, often kept in pairs."
   },
   {
     "species": "Rabbit",
-    "cost": 300,
-    "description": "A soft, quick-footed rabbit, a favorite gentle pet for kids in the household.",
-    "speed": 7
+    "cost": 3000,
+    "description": "A soft, gentle rabbit, a favorite pet for kids in the household."
   },
   {
-    "species": "Gold Fish",
-    "cost": 80,
-    "description": "A goldfish kept in a bowl or backyard pond, low-maintenance and a common starter pet.",
-    "speed": 2
+    "species": "Goldfish",
+    "cost": 800,
+    "description": "A goldfish kept in a bowl or backyard pond, low-maintenance and a common starter pet."
   },
   {
-    "species": "Fish",
-    "cost": 100,
-    "description": "A vibrant, long-finned fighting fish kept solo in a small tank or jar — a household staple.",
-    "speed": 4
+    "species": "Betta Fish",
+    "cost": 1000,
+    "description": "A vibrant, long-finned fighting fish kept solo in a small tank."
   },
   {
     "species": "Turtle",
-    "cost": 150,
-    "description": "A slow but steady pet turtle, often kept in a tub or small backyard pond for decades.",
-    "speed": 1
+    "cost": 1500,
+    "description": "A slow, steady pet turtle, often kept for decades in a tub or small pond."
   }
 ]
