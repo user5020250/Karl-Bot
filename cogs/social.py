@@ -18,6 +18,21 @@ except Exception:  # pragma: no cover - gambling cog should always be present
 
 
 # ---------------------------------------------------------------------------
+# /profile "Cooldowns" grouping - mirrors the /help categories so the two
+# stay visually consistent. Only commands that actually have a cooldown
+# (i.e. appear in config.COOLDOWNS) end up shown; anything with a cooldown
+# that isn't listed here falls into "Other" automatically.
+# ---------------------------------------------------------------------------
+COOLDOWN_CATEGORIES = {
+    "Rewards": ["daily", "weekly", "monthly", "yearly"],
+    "Work & Side Hustles": ["work", "overtime", "beg", "cook", "fish", "farm", "harvest"],
+    "Bank": ["interest"],
+    "Pets": ["feed"],
+    "Social": ["rob"],
+}
+
+
+# ---------------------------------------------------------------------------
 # /help dropdown
 # ---------------------------------------------------------------------------
 HELP_CATEGORIES = {
@@ -184,15 +199,29 @@ class SocialCog(commands.Cog):
             rows = {r["command"]: r["expires_at"] for r in await self.db.get_all_cooldowns(target.id)}
             embed = make_embed(f"{target.display_name}'s Profile - Cooldowns")
             now = time.time()
-            lines = []
-            for command_name in sorted(config.COOLDOWNS):
+
+            def status_for(command_name: str) -> str:
                 expires_at = rows.get(command_name)
                 if expires_at and expires_at > now:
-                    status = f"`{format_seconds(expires_at - now)}` remaining"
-                else:
-                    status = "`Ready`"
-                lines.append(f"**/{command_name}** - {status}")
-            embed.description = "\n".join(lines)
+                    return f"`{format_seconds(expires_at - now)}` remaining"
+                return "`Ready`"
+
+            categorized = set()
+            blocks = []
+            for category, command_names in COOLDOWN_CATEGORIES.items():
+                present = [c for c in command_names if c in config.COOLDOWNS]
+                if not present:
+                    continue
+                categorized.update(present)
+                lines = [f"**/{c}** - {status_for(c)}" for c in present]
+                blocks.append(f"**{category}**\n" + "\n".join(lines))
+
+            leftover = [c for c in sorted(config.COOLDOWNS) if c not in categorized]
+            if leftover:
+                lines = [f"**/{c}** - {status_for(c)}" for c in leftover]
+                blocks.append("**Other**\n" + "\n".join(lines))
+
+            embed.description = "\n\n".join(blocks)
             return embed
 
         if section == "Achievements":
