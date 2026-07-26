@@ -149,7 +149,7 @@ def build_pet_shop_embed(stock: dict, next_restock: float = None) -> discord.Emb
     lines = []
     for p in PET_SHOP:
         in_stock = stock.get(p["species"], 0) > 0
-        status = "✅ In Stock (1 left)" if in_stock else "❌ Out of Stock"
+        status = "`Available (1/1)`" if in_stock else "`Out of Stock (0/1)`"
         lines.append(f"**{p['species']}** — {money(p['cost'])} [{status}]\n{p['description']}")
     desc = "\n\n".join(lines)
     if next_restock:
@@ -161,11 +161,11 @@ def build_food_shop_embed() -> discord.Embed:
     lines = []
     for item in FOOD_SHOP:
         allowed = item.get("species") or []
-        for_line = "Any pet" if not allowed else ", ".join(allowed)
+        for_line = "Any Pet" if not allowed else ", ".join(allowed)
         lines.append(
             f"**{item['name']}** — {money(item['cost'])} "
-            f"(+{item['hunger']} hunger, +{item['exp']} EXP)\n"
-            f"*For: {for_line}*\n{item['description']}"
+            f"`(+{item['hunger']} hunger, +{item['exp']} exp)`\n"
+            f"For: `{for_line}`\n{item['description']}"
         )
     return make_embed("Pet Shop — Food", "\n\n".join(lines))
 
@@ -174,8 +174,8 @@ class ShopCategorySelect(discord.ui.Select):
     def __init__(self, cog: "PetsCog"):
         self.cog = cog
         options = [
-            discord.SelectOption(label="Pets", description="Adoptable household pets", value="pets", emoji="🐾"),
-            discord.SelectOption(label="Food", description="Food & treats to feed your pets", value="food", emoji="🍖"),
+            discord.SelectOption(label="Pets", description="Adoptable household pets", value="pets"),
+            discord.SelectOption(label="Food", description="Food & treats to feed your pets", value="food"),
         ]
         super().__init__(placeholder="Choose a category...", options=options, min_values=1, max_values=1)
 
@@ -211,6 +211,20 @@ class RaceGroup(app_commands.Group):
     async def challenge_cmd(self, interaction: discord.Interaction, opponent: discord.Member, pet_id: int, bet: str):
         db = self.cog.db
         challenger = interaction.user
+
+        for target_id, existing_challenge in self.cog.pending_races.items():
+            if existing_challenge["challenger"] == challenger.id and time.time() - existing_challenge["created"] < RACE_CHALLENGE_TIMEOUT:
+                other = interaction.guild.get_member(target_id) if interaction.guild else None
+                other_name = other.mention if other else f"<@{target_id}>"
+                await interaction.response.send_message(
+                    embed=make_embed(
+                        "Error",
+                        f"You already have a pending challenge with {other_name}. "
+                        f"Use `/pet race cancel` to cancel it before sending a new one.",
+                    ),
+                    ephemeral=True,
+                )
+                return
 
         if opponent.bot or opponent.id == challenger.id:
             await interaction.response.send_message(embed=make_embed("Error", "You can't race yourself or a bot."), ephemeral=True)
@@ -345,6 +359,21 @@ class RaceGroup(app_commands.Group):
             await interaction.response.send_message(embed=make_embed("Error", "You have no pending race challenges."), ephemeral=True)
             return
         await interaction.response.send_message(embed=make_embed("Race Declined", "You declined the race challenge."))
+
+    @app_commands.command(name="cancel", description="Cancel a race challenge you sent")
+    async def cancel_cmd(self, interaction: discord.Interaction):
+        target_id = None
+        for opponent_id, challenge in self.cog.pending_races.items():
+            if challenge["challenger"] == interaction.user.id:
+                target_id = opponent_id
+                break
+
+        if target_id is None:
+            await interaction.response.send_message(embed=make_embed("Error", "You have no pending challenge to cancel."), ephemeral=True)
+            return
+
+        del self.cog.pending_races[target_id]
+        await interaction.response.send_message(embed=make_embed("Race Cancelled", "You cancelled your pending race challenge."))
 
 
 class PetGroup(app_commands.Group):
