@@ -55,10 +55,10 @@ HELP_CATEGORIES = {
         ("/bank upg", "Upgrade your bank capacity"),
     ],
     "Gambling": [
-        ("/scatter", "Bet on a 50/50 chance"),
-        ("/colorgame", "Bet on a 50/50 chance"),
-        ("/tongits", "Bet on a 50/50 chance"),
-        ("/sabong", "Bet on a 50/50 chance"),
+        ("/scatter", "Try your luck at Scatter"),
+        ("/colorgame", "Try your luck at Color Game"),
+        ("/tongits", "Try your luck at Tongits"),
+        ("/sabong", "Try your luck at Sabong"),
     ],
     "Pets": [
         ("/petshop", "Show the pet shop"),
