@@ -21,24 +21,20 @@ class PrestigeCog(commands.Cog):
             return
 
         cost = tier_cost(user["prestige"])
-        net_worth = user["balance"] + user["bank"]
-        if net_worth < cost:
+        if user["balance"] < cost:
             await interaction.response.send_message(
-                embed=make_embed("Error", f"You need {money(cost)} net worth to prestige. You have {money(net_worth)}."),
+                embed=make_embed(
+                    "Error",
+                    f"You need {money(cost)} in cash to prestige. You have {money(user['balance'])} in cash. "
+                    f"Withdraw from your bank with `/withdraw` if you need more.",
+                ),
                 ephemeral=True,
             )
             return
 
-        # Deduct cost from cash first, then bank.
-        remaining_cost = cost
-        take_from_balance = min(user["balance"], remaining_cost)
-        remaining_cost -= take_from_balance
-        take_from_bank = min(user["bank"], remaining_cost)
-
-        await self.db.add_bank(interaction.user.id, -take_from_bank)
-
-        # Balance always resets to 0 on prestige (whatever wasn't spent on the
-        # cost is lost); bank keeps whatever remains; level is never touched.
+        # Prestige cost comes only from cash. Balance always resets to 0
+        # afterward (any leftover cash beyond the cost is lost too); bank is
+        # never touched; level is never touched.
         await self.db.set_field(interaction.user.id, "balance", 0)
 
         new_prestige = user["prestige"] + 1
@@ -55,7 +51,7 @@ class PrestigeCog(commands.Cog):
             f"You are now **Prestige {new_prestige}**.\n"
             f"Permanent income bonus: `+{bonus_pct:.0f}%`\n"
             f"Bank capacity increased by {money(config.BANK_CAPACITY_PRESTIGE_INCREASE)}.\n"
-            f"Your balance has been reset (your bank and level are unaffected).\n"
+            f"Your balance has been reset (your bank and level are untouched).\n"
             f"New title unlocked: **{new_title}**"
         )
         if leveled_up:
