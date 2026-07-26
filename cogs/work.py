@@ -98,6 +98,10 @@ class WorkCog(commands.Cog):
                 )
             elif row["next_refresh"] <= now:
                 await self.db.set_job_stock(job["key"], job["max_stock"], now + config.JOB_STOCK_REFRESH_SECONDS)
+            elif row["stock"] > job["max_stock"]:
+                # Config lowered max_stock (e.g. jobs.json was updated) — clamp
+                # down immediately instead of waiting for the next refresh.
+                await self.db.set_job_stock(job["key"], job["max_stock"], row["next_refresh"])
 
     async def _do_income(self, interaction: discord.Interaction, command_name: str, reward_range):
         if not await check_cooldown(interaction, self.db, command_name, config.COOLDOWNS[command_name]):
