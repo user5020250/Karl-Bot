@@ -38,16 +38,31 @@ class JobGroup(app_commands.Group):
             await interaction.response.send_message(embed=make_embed("Error", f"You already work as **{JOB_DEFS_BY_KEY[user['job']]['name']}**. Resign first with `/job resign`."), ephemeral=True)
             return
 
-        job_row = await self.cog.db.get_job(job)
-        if not job_row or job_row["stock"] <= 0:
+        guild_id = interaction.guild_id
+        job_def = JOB_DEFS_BY_KEY[job]
+
+        # If this guild has never seen this job before (e.g. bot just joined,
+        # or the refresh loop hasn't run yet), initialize it now instead of
+        # making the user wait up to 60s for the background loop.
+        job_row = await self.cog.db.get_job(guild_id, job)
+        if job_row is None:
+            now = time.time()
+            await self.cog.db.upsert_job(
+                guild_id, job_def["key"], job_def["name"], job_def["pay_min"], job_def["pay_max"],
+                job_def["max_stock"], job_def["max_stock"], now + config.JOB_STOCK_REFRESH_SECONDS,
+            )
+
+        # Atomic claim: a single conditional UPDATE, so two users applying
+        # for the last slot at the same instant can't both succeed.
+        claimed = await self.cog.db.try_take_job(guild_id, job)
+        if not claimed:
             await interaction.response.send_message(embed=make_embed("Error", "This job has no open positions right now."), ephemeral=True)
             return
 
-        await self.cog.db.set_job_stock(job, job_row["stock"] - 1, job_row["next_refresh"])
         await self.cog.db.set_field(interaction.user.id, "job", job)
         leveled_up = await track_activity(self.cog.db, interaction.user.id)
 
-        desc = f"You are now working as **{JOB_DEFS_BY_KEY[job]['name']}**. Use `/work` to start earning."
+        desc = f"You are now working as **{job_def['name']}**. Use `/work` to start earning."
         if leveled_up:
             desc += "\nYou leveled up!"
         embed = make_embed("Job Application Approved", desc)
@@ -60,10 +75,11 @@ class JobGroup(app_commands.Group):
             await interaction.response.send_message(embed=make_embed("Error", "You are not currently employed."), ephemeral=True)
             return
 
-        job_row = await self.cog.db.get_job(user["job"])
+        guild_id = interaction.guild_id
+        job_row = await self.cog.db.get_job(guild_id, user["job"])
         job_name = JOB_DEFS_BY_KEY[user["job"]]["name"]
         if job_row:
-            await self.cog.db.set_job_stock(user["job"], job_row["stock"] + 1, job_row["next_refresh"])
+            await self.cog.db.release_job(guild_id, user["job"])
         await self.cog.db.set_field(interaction.user.id, "job", None)
         leveled_up = await track_activity(self.cog.db, interaction.user.id)
 
@@ -89,19 +105,20 @@ class WorkCog(commands.Cog):
     async def refresh_job_stock(self):
         await self.bot.wait_until_ready()
         now = time.time()
-        for job in JOB_DEFS:
-            row = await self.db.get_job(job["key"])
-            if row is None:
-                await self.db.upsert_job(
-                    job["key"], job["name"], job["pay_min"], job["pay_max"],
-                    job["max_stock"], job["max_stock"], now + config.JOB_STOCK_REFRESH_SECONDS,
-                )
-            elif row["next_refresh"] <= now:
-                await self.db.set_job_stock(job["key"], job["max_stock"], now + config.JOB_STOCK_REFRESH_SECONDS)
-            elif row["stock"] > job["max_stock"]:
-                # Config lowered max_stock (e.g. jobs.json was updated) — clamp
-                # down immediately instead of waiting for the next refresh.
-                await self.db.set_job_stock(job["key"], job["max_stock"], row["next_refresh"])
+        for guild in self.bot.guilds:
+            for job in JOB_DEFS:
+                row = await self.db.get_job(guild.id, job["key"])
+                if row is None:
+                    await self.db.upsert_job(
+                        guild.id, job["key"], job["name"], job["pay_min"], job["pay_max"],
+                        job["max_stock"], job["max_stock"], now + config.JOB_STOCK_REFRESH_SECONDS,
+                    )
+                elif row["next_refresh"] <= now:
+                    await self.db.reset_job_stock(guild.id, job["key"], job["max_stock"], now + config.JOB_STOCK_REFRESH_SECONDS)
+                elif row["stock"] > job["max_stock"]:
+                    # Config lowered max_stock (e.g. jobs.json was updated) — clamp
+                    # down immediately instead of waiting for the next refresh.
+                    await self.db.clamp_job_stock(guild.id, job["key"], job["max_stock"])
 
     async def _do_income(self, interaction: discord.Interaction, command_name: str, reward_range):
         if not await check_cooldown(interaction, self.db, command_name, config.COOLDOWNS[command_name]):
@@ -131,7 +148,7 @@ class WorkCog(commands.Cog):
         await track_activity(self.db, interaction.user.id)
         lines = []
         for job in JOB_DEFS:
-            row = await self.db.get_job(job["key"])
+            row = await self.db.get_job(interaction.guild_id, job["key"])
             stock = row["stock"] if row else job["max_stock"]
             status = f"`Available ({stock}/{job['max_stock']})`" if stock > 0 else "`Unavailable`"
             lines.append(
