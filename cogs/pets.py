@@ -118,8 +118,8 @@ def exp_needed(level: int) -> int:
 
 def add_pet_exp(pet: dict, amount: int):
     """Apply EXP gain to a pet dict, returns (new_exp, new_level, leveled_up)."""
-    exp = pet.get("exp", 0) + amount
-    level = pet.get("level", 1)
+    exp = pet["exp"] + amount
+    level = pet["level"]
     leveled_up = False
     while exp >= exp_needed(level):
         exp -= exp_needed(level)
@@ -338,7 +338,7 @@ class RaceGroup(app_commands.Group):
         await db.update_pet(
             winner_pet["pet_id"],
             exp=w_exp, level=w_level,
-            wins=winner_pet.get("wins", 0) + 1,
+            wins=winner_pet["wins"] + 1,
             hunger=max(0, winner_pet["hunger"] - 15),
             happiness=min(100, winner_pet["happiness"] + 5),
         )
@@ -348,7 +348,7 @@ class RaceGroup(app_commands.Group):
         await db.update_pet(
             loser_pet["pet_id"],
             exp=l_exp, level=l_level,
-            losses=loser_pet.get("losses", 0) + 1,
+            losses=loser_pet["losses"] + 1,
             hunger=max(0, loser_pet["hunger"] - 15),
             happiness=max(0, loser_pet["happiness"] - 5),
         )
@@ -598,15 +598,15 @@ class PetGroup(app_commands.Group):
             return
 
         hunger = compute_hunger(pet["last_fed"])
-        level = pet.get("level", 1)
-        exp = pet.get("exp", 0)
+        level = pet["level"]
+        exp = pet["exp"]
         desc = (
             f"**Species:** {pet['species']}\n"
             f"**Status:** {'Alive' if pet['alive'] else 'Deceased'}\n"
             f"**Hunger:** {hunger}/100 ({hunger_status(hunger)})\n"
             f"**Happiness:** {pet['happiness']}/100\n"
             f"**Level:** {level} ({exp}/{exp_needed(level)} EXP)\n"
-            f"**Race Record:** {pet.get('wins', 0)}W - {pet.get('losses', 0)}L"
+            f"**Race Record:** {pet['wins']}W - {pet['losses']}L"
         )
         await interaction.response.send_message(embed=make_embed(pet["name"] or pet["species"], desc))
 
@@ -626,8 +626,8 @@ class PetGroup(app_commands.Group):
             hunger = compute_hunger(pet["last_fed"])
             lines.append(
                 f"`#{pet['pet_id']}` **{pet['name'] or pet['species']}** ({pet['species']}) — "
-                f"Lv.{pet.get('level', 1)} — {hunger_status(hunger)} ({hunger}/100) — "
-                f"Happiness {pet['happiness']}/100 — {pet.get('wins', 0)}W/{pet.get('losses', 0)}L"
+                f"Lv.{pet['level']} — {hunger_status(hunger)} ({hunger}/100) — "
+                f"Happiness {pet['happiness']}/100 — {pet['wins']}W/{pet['losses']}L"
             )
         await interaction.response.send_message(
             embed=make_embed(f"Your Pets ({len(pets)})", "\n".join(lines)),
