@@ -28,6 +28,7 @@ from utils.economy import track_activity
 #   config.RENAME_COST               -> cash cost to rename a pet (default 250)
 #   config.RACE_CHALLENGE_TIMEOUT    -> seconds a race challenge stays open (default 120)
 #   config.PET_STOCK_REFRESH_MINUTES -> how often shop stock re-rolls (default 30)
+#   config.PET_GIFT_ENABLED          -> allow /pet gift at all (default True)
 #
 # SHOP STOCK: each species is either in stock (1) or sold out (0), shared
 # across the whole server, and re-rolled 50/50 on a timer (self.pet_stock in
@@ -41,6 +42,22 @@ from utils.economy import track_activity
 #
 # RACING: outcomes are a pure 50/50 coin flip (see PetsCog._resolve_race) —
 # no stat, level, or species advantage either way.
+#
+# CHANGE LOG:
+#   - /adopt moved into the /pet group -> /pet adopt (unchanged behavior).
+#   - /feed moved into the /pet group -> /pet feed (unchanged behavior).
+#   - /play moved into the /pet group -> /pet play, for consistency with
+#     every other single-pet action now living under /pet. (Not explicitly
+#     requested — revert easily if you'd rather keep it top-level.)
+#   - /pet adopt now has autocomplete on `species`, showing stock status.
+#     It was previously free-text, easy to mistype.
+#   - NEW: /pet list — quick overview of your own pets + their IDs, since
+#     almost every other subcommand needs a pet_id and previously the only
+#     way to find one was a separate /profile command.
+#   - NEW: /pet leaderboard — top pets server-wide by race wins.
+#   - NEW: /pet gift — transfer a live pet you own to another member,
+#     respecting their MAX_PETS_OWNED cap. Gated by config.PET_GIFT_ENABLED
+#     in case you don't want pets tradeable.
 # ---------------------------------------------------------------------------
 
 _PETS_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "pets.json")
@@ -72,6 +89,7 @@ DEATH_DAYS = 7  # fully unfed for this many days -> pet dies
 RENAME_COST = getattr(config, "RENAME_COST", 250)
 RACE_CHALLENGE_TIMEOUT = getattr(config, "RACE_CHALLENGE_TIMEOUT", 120)
 STOCK_REFRESH_MINUTES = getattr(config, "PET_STOCK_REFRESH_MINUTES", 30)
+GIFT_ENABLED = getattr(config, "PET_GIFT_ENABLED", True)
 
 
 def compute_hunger(last_fed: float) -> int:
@@ -205,7 +223,7 @@ class RaceGroup(app_commands.Group):
     @app_commands.command(name="challenge", description="Challenge another player to a pet race")
     @app_commands.describe(
         opponent="Who you want to race",
-        pet_id="The ID of your pet to race (see /profile Pets)",
+        pet_id="The ID of your pet to race (see /pet list)",
         bet="Amount to bet — a number, 'all', 'half', or shorthand like 5k",
     )
     async def challenge_cmd(self, interaction: discord.Interaction, opponent: discord.Member, pet_id: int, bet: str):
@@ -264,7 +282,7 @@ class RaceGroup(app_commands.Group):
         await interaction.response.send_message(embed=embed)
 
     @app_commands.command(name="accept", description="Accept a pending race challenge")
-    @app_commands.describe(pet_id="The ID of your pet to race (see /profile Pets)")
+    @app_commands.describe(pet_id="The ID of your pet to race (see /pet list)")
     async def accept_cmd(self, interaction: discord.Interaction, pet_id: int):
         db = self.cog.db
         acceptor = interaction.user
@@ -383,8 +401,158 @@ class PetGroup(app_commands.Group):
         self.race_group = RaceGroup(cog)
         self.add_command(self.race_group)
 
+    # -- adopt -------------------------------------------------------------
+    async def _species_autocomplete(self, interaction: discord.Interaction, current: str):
+        current_lower = current.lower()
+        choices = []
+        for p in PET_SHOP:
+            if current_lower in p["species"].lower():
+                in_stock = self.cog.pet_stock.get(p["species"], 0) > 0
+                label = p["species"] if in_stock else f"{p['species']} (Out of Stock)"
+                choices.append(app_commands.Choice(name=label, value=p["species"]))
+        return choices[:25]
+
+    @app_commands.command(name="adopt", description="Adopt a pet")
+    @app_commands.describe(species="The species to adopt", name="A name for your new pet")
+    @app_commands.autocomplete(species=_species_autocomplete)
+    async def adopt_cmd(self, interaction: discord.Interaction, species: str, name: str):
+        species_key = species.lower()
+        if species_key not in PET_SHOP_BY_SPECIES:
+            await interaction.response.send_message(embed=make_embed("Error", "That species is not available in the pet shop."), ephemeral=True)
+            return
+
+        pet_def = PET_SHOP_BY_SPECIES[species_key]
+
+        if self.cog.pet_stock.get(pet_def["species"], 0) <= 0:
+            await interaction.response.send_message(
+                embed=make_embed(
+                    "Error",
+                    f"**{pet_def['species']}** is currently out of stock. "
+                    f"Stock refreshes every {STOCK_REFRESH_MINUTES} minutes — next restock <t:{int(self.cog.next_restock)}:R>.",
+                ),
+                ephemeral=True,
+            )
+            return
+
+        owned = await self.cog.db.get_pets(interaction.user.id)
+        if len(owned) >= config.MAX_PETS_OWNED:
+            await interaction.response.send_message(embed=make_embed("Error", f"You may only own up to `{config.MAX_PETS_OWNED}` pets."), ephemeral=True)
+            return
+
+        user = await self.cog.db.get_user(interaction.user.id)
+        if user["balance"] < pet_def["cost"]:
+            await interaction.response.send_message(embed=make_embed("Error", "You do not have enough cash on hand."), ephemeral=True)
+            return
+
+        # Consume the single stock slot immediately so two people can't both
+        # buy the same last-in-stock pet in a race condition.
+        self.cog.pet_stock[pet_def["species"]] = 0
+
+        await self.cog.db.add_balance(interaction.user.id, -pet_def["cost"])
+        await self.cog.db.add_pet(interaction.user.id, pet_def["species"], name)
+        leveled_up = await track_activity(self.cog.db, interaction.user.id)
+
+        desc = f"You adopted a **{pet_def['species']}** named **{name}**."
+        if leveled_up:
+            desc += "\nYou leveled up!"
+        embed = make_embed("Pet Adopted", desc)
+        await interaction.response.send_message(embed=embed)
+
+    # -- feed ----------------------------------------------------------------
+    async def _food_autocomplete(self, interaction: discord.Interaction, current: str):
+        pet_id = interaction.namespace.pet_id
+        species = None
+        if pet_id is not None:
+            try:
+                pet = await self.cog.db.get_pet(pet_id)
+            except Exception:
+                pet = None
+            if pet:
+                species = pet["species"]
+
+        options = get_food_options(species)
+        current_lower = current.lower()
+        return [
+            app_commands.Choice(name=item["name"], value=item["name"])
+            for item in options
+            if current_lower in item["name"].lower()
+        ][:25]
+
+    @app_commands.command(name="feed", description="Feed a pet")
+    @app_commands.describe(pet_id="The ID of the pet to feed (see /pet list)", food="What to feed it")
+    @app_commands.autocomplete(food=_food_autocomplete)
+    async def feed_cmd(self, interaction: discord.Interaction, pet_id: int, food: str):
+        if not await check_cooldown(interaction, self.cog.db, "feed", config.COOLDOWNS["feed"]):
+            return
+
+        pet = await self.cog.db.get_pet(pet_id)
+        if not pet or pet["owner_id"] != interaction.user.id or not pet["alive"]:
+            await interaction.response.send_message(embed=make_embed("Error", "You do not own that pet."), ephemeral=True)
+            return
+
+        food_item = FOOD_BY_NAME.get(food.lower())
+        if not food_item:
+            await interaction.response.send_message(embed=make_embed("Error", "That food isn't sold in the shop."), ephemeral=True)
+            return
+
+        if not food_is_valid_for(food_item, pet["species"]):
+            suitable = ", ".join(f["name"] for f in get_food_options(pet["species"]))
+            await interaction.response.send_message(
+                embed=make_embed(
+                    "Error",
+                    f"**{food_item['name']}** isn't suitable for a {pet['species']}.\n"
+                    f"Try: {suitable}",
+                ),
+                ephemeral=True,
+            )
+            return
+
+        user = await self.cog.db.get_user(interaction.user.id)
+        if user["balance"] < food_item["cost"]:
+            await interaction.response.send_message(embed=make_embed("Error", "You do not have enough cash on hand."), ephemeral=True)
+            return
+
+        await self.cog.db.add_balance(interaction.user.id, -food_item["cost"])
+
+        new_hunger = min(100, pet["hunger"] + food_item["hunger"])
+        new_exp, new_level, leveled = add_pet_exp(pet, food_item["exp"])
+        await self.cog.db.update_pet(pet_id, last_fed=time.time(), hunger=new_hunger, exp=new_exp, level=new_level)
+
+        leveled_up_owner = await track_activity(self.cog.db, interaction.user.id)
+        desc = f"You fed **{pet['name'] or pet['species']}** some {food_item['name']}. Hunger: `{new_hunger}/100`."
+        if leveled:
+            desc += f"\n{pet['name'] or pet['species']} leveled up to **level {new_level}**!"
+        if leveled_up_owner:
+            desc += "\nYou leveled up!"
+        embed = make_embed("Pet Fed", desc)
+        await interaction.response.send_message(embed=embed)
+
+    # -- play ----------------------------------------------------------------
+    @app_commands.command(name="play", description="Play with a pet")
+    @app_commands.describe(pet_id="The ID of the pet to play with (see /pet list)")
+    async def play_cmd(self, interaction: discord.Interaction, pet_id: int):
+        pet = await self.cog.db.get_pet(pet_id)
+        if not pet or pet["owner_id"] != interaction.user.id or not pet["alive"]:
+            await interaction.response.send_message(embed=make_embed("Error", "You do not own that pet."), ephemeral=True)
+            return
+
+        new_happiness = min(100, pet["happiness"] + random.randint(5, 15))
+        exp_gain = random.randint(5, 12)
+        new_exp, new_level, leveled = add_pet_exp(pet, exp_gain)
+        await self.cog.db.update_pet(pet_id, happiness=new_happiness, exp=new_exp, level=new_level)
+
+        leveled_up_owner = await track_activity(self.cog.db, interaction.user.id)
+        desc = f"You played with **{pet['name'] or pet['species']}**. Happiness: `{new_happiness}/100` (+{exp_gain} EXP)."
+        if leveled:
+            desc += f"\n{pet['name'] or pet['species']} leveled up to **level {new_level}**!"
+        if leveled_up_owner:
+            desc += "\nYou leveled up!"
+        embed = make_embed("Playtime", desc)
+        await interaction.response.send_message(embed=embed)
+
+    # -- rename / disowned / info --------------------------------------------
     @app_commands.command(name="rename", description="Rename a pet (has a fee)")
-    @app_commands.describe(pet_id="The ID of the pet to rename (see /profile Pets)", new_name="The new name")
+    @app_commands.describe(pet_id="The ID of the pet to rename (see /pet list)", new_name="The new name")
     async def rename_cmd(self, interaction: discord.Interaction, pet_id: int, new_name: str):
         pet = await self.cog.db.get_pet(pet_id)
         if not pet or pet["owner_id"] != interaction.user.id or not pet["alive"]:
@@ -408,7 +576,7 @@ class PetGroup(app_commands.Group):
         await interaction.response.send_message(embed=make_embed("Pet Renamed", desc))
 
     @app_commands.command(name="disowned", description="Abandon a pet")
-    @app_commands.describe(pet_id="The ID of the pet to abandon (see /profile Pets)")
+    @app_commands.describe(pet_id="The ID of the pet to abandon (see /pet list)")
     async def disowned_cmd(self, interaction: discord.Interaction, pet_id: int):
         pet = await self.cog.db.get_pet(pet_id)
         if not pet or pet["owner_id"] != interaction.user.id:
@@ -422,7 +590,7 @@ class PetGroup(app_commands.Group):
         await interaction.response.send_message(embed=make_embed("Pet Abandoned", desc))
 
     @app_commands.command(name="info", description="View a pet's stats")
-    @app_commands.describe(pet_id="The ID of the pet to inspect (see /profile Pets)")
+    @app_commands.describe(pet_id="The ID of the pet to inspect (see /pet list)")
     async def info_cmd(self, interaction: discord.Interaction, pet_id: int):
         pet = await self.cog.db.get_pet(pet_id)
         if not pet or pet["owner_id"] != interaction.user.id:
@@ -441,6 +609,84 @@ class PetGroup(app_commands.Group):
             f"**Race Record:** {pet.get('wins', 0)}W - {pet.get('losses', 0)}L"
         )
         await interaction.response.send_message(embed=make_embed(pet["name"] or pet["species"], desc))
+
+    # -- list (NEW) ------------------------------------------------------
+    @app_commands.command(name="list", description="List your pets and their IDs")
+    async def list_cmd(self, interaction: discord.Interaction):
+        pets = await self.cog.db.get_pets(interaction.user.id)
+        if not pets:
+            await interaction.response.send_message(
+                embed=make_embed("Your Pets", "You don't own any pets yet. Try `/pet adopt`."),
+                ephemeral=True,
+            )
+            return
+
+        lines = []
+        for pet in pets:
+            hunger = compute_hunger(pet["last_fed"])
+            lines.append(
+                f"`#{pet['pet_id']}` **{pet['name'] or pet['species']}** ({pet['species']}) — "
+                f"Lv.{pet.get('level', 1)} — {hunger_status(hunger)} ({hunger}/100) — "
+                f"Happiness {pet['happiness']}/100 — {pet.get('wins', 0)}W/{pet.get('losses', 0)}L"
+            )
+        await interaction.response.send_message(
+            embed=make_embed(f"Your Pets ({len(pets)})", "\n".join(lines)),
+            ephemeral=True,
+        )
+
+    # -- leaderboard (NEW) ------------------------------------------------
+    @app_commands.command(name="leaderboard", description="See the top racing pets server-wide")
+    async def leaderboard_cmd(self, interaction: discord.Interaction):
+        rows = await self.cog.db.fetchall(
+            "SELECT pet_id, owner_id, name, species, wins, losses FROM pets "
+            "WHERE alive = 1 AND (wins > 0 OR losses > 0) "
+            "ORDER BY wins DESC, losses ASC LIMIT 10"
+        )
+        if not rows:
+            await interaction.response.send_message(
+                embed=make_embed("Pet Racing Leaderboard", "No races have been run yet — try `/pet race challenge`.")
+            )
+            return
+
+        lines = []
+        for i, row in enumerate(rows, start=1):
+            lines.append(
+                f"**#{i}. {row['name'] or row['species']}** ({row['species']}) — "
+                f"Owner: <@{row['owner_id']}> — {row['wins']}W / {row['losses']}L"
+            )
+        await interaction.response.send_message(embed=make_embed("Pet Racing Leaderboard", "\n".join(lines)))
+
+    # -- gift (NEW) --------------------------------------------------------
+    @app_commands.command(name="gift", description="Give one of your pets to another player")
+    @app_commands.describe(pet_id="The ID of the pet to give away (see /pet list)", recipient="Who to give it to")
+    async def gift_cmd(self, interaction: discord.Interaction, pet_id: int, recipient: discord.Member):
+        if not GIFT_ENABLED:
+            await interaction.response.send_message(embed=make_embed("Error", "Pet gifting is currently disabled."), ephemeral=True)
+            return
+
+        if recipient.bot or recipient.id == interaction.user.id:
+            await interaction.response.send_message(embed=make_embed("Error", "You can't gift a pet to yourself or a bot."), ephemeral=True)
+            return
+
+        pet = await self.cog.db.get_pet(pet_id)
+        if not pet or pet["owner_id"] != interaction.user.id or not pet["alive"]:
+            await interaction.response.send_message(embed=make_embed("Error", "You do not own that pet."), ephemeral=True)
+            return
+
+        recipient_pets = await self.cog.db.get_pets(recipient.id)
+        if len(recipient_pets) >= config.MAX_PETS_OWNED:
+            await interaction.response.send_message(
+                embed=make_embed("Error", f"{recipient.display_name} already owns the maximum of `{config.MAX_PETS_OWNED}` pets."),
+                ephemeral=True,
+            )
+            return
+
+        await self.cog.db.update_pet(pet_id, owner_id=recipient.id)
+        leveled_up = await track_activity(self.cog.db, interaction.user.id)
+        desc = f"You gave **{pet['name'] or pet['species']}** to {recipient.mention}."
+        if leveled_up:
+            desc += "\nYou leveled up!"
+        await interaction.response.send_message(embed=make_embed("Pet Gifted", desc))
 
 
 class PetsCog(commands.Cog):
@@ -508,141 +754,6 @@ class PetsCog(commands.Cog):
         await track_activity(self.db, interaction.user.id)
         embed = build_pet_shop_embed(self.pet_stock, self.next_restock)
         await interaction.response.send_message(embed=embed, view=ShopView(self))
-
-    @app_commands.command(name="adopt", description="Adopt a pet")
-    @app_commands.describe(species="The species to adopt", name="A name for your new pet")
-    async def adopt_cmd(self, interaction: discord.Interaction, species: str, name: str):
-        species_key = species.lower()
-        if species_key not in PET_SHOP_BY_SPECIES:
-            await interaction.response.send_message(embed=make_embed("Error", "That species is not available in the pet shop."), ephemeral=True)
-            return
-
-        pet_def = PET_SHOP_BY_SPECIES[species_key]
-
-        if self.pet_stock.get(pet_def["species"], 0) <= 0:
-            await interaction.response.send_message(
-                embed=make_embed(
-                    "Error",
-                    f"**{pet_def['species']}** is currently out of stock. "
-                    f"Stock refreshes every {STOCK_REFRESH_MINUTES} minutes — next restock <t:{int(self.next_restock)}:R>.",
-                ),
-                ephemeral=True,
-            )
-            return
-
-        owned = await self.db.get_pets(interaction.user.id)
-        if len(owned) >= config.MAX_PETS_OWNED:
-            await interaction.response.send_message(embed=make_embed("Error", f"You may only own up to `{config.MAX_PETS_OWNED}` pets."), ephemeral=True)
-            return
-
-        user = await self.db.get_user(interaction.user.id)
-        if user["balance"] < pet_def["cost"]:
-            await interaction.response.send_message(embed=make_embed("Error", "You do not have enough cash on hand."), ephemeral=True)
-            return
-
-        # Consume the single stock slot immediately so two people can't both
-        # buy the same last-in-stock pet in a race condition.
-        self.pet_stock[pet_def["species"]] = 0
-
-        await self.db.add_balance(interaction.user.id, -pet_def["cost"])
-        await self.db.add_pet(interaction.user.id, pet_def["species"], name)
-        leveled_up = await track_activity(self.db, interaction.user.id)
-
-        desc = f"You adopted a **{pet_def['species']}** named **{name}**."
-        if leveled_up:
-            desc += "\nYou leveled up!"
-        embed = make_embed("Pet Adopted", desc)
-        await interaction.response.send_message(embed=embed)
-
-    async def _food_autocomplete(self, interaction: discord.Interaction, current: str):
-        pet_id = interaction.namespace.pet_id
-        species = None
-        if pet_id is not None:
-            try:
-                pet = await self.db.get_pet(pet_id)
-            except Exception:
-                pet = None
-            if pet:
-                species = pet["species"]
-
-        options = get_food_options(species)
-        current_lower = current.lower()
-        return [
-            app_commands.Choice(name=item["name"], value=item["name"])
-            for item in options
-            if current_lower in item["name"].lower()
-        ][:25]
-
-    @app_commands.command(name="feed", description="Feed a pet")
-    @app_commands.describe(pet_id="The ID of the pet to feed (see /profile Pets)", food="What to feed it")
-    @app_commands.autocomplete(food=_food_autocomplete)
-    async def feed_cmd(self, interaction: discord.Interaction, pet_id: int, food: str):
-        if not await check_cooldown(interaction, self.db, "feed", config.COOLDOWNS["feed"]):
-            return
-
-        pet = await self.db.get_pet(pet_id)
-        if not pet or pet["owner_id"] != interaction.user.id or not pet["alive"]:
-            await interaction.response.send_message(embed=make_embed("Error", "You do not own that pet."), ephemeral=True)
-            return
-
-        food_item = FOOD_BY_NAME.get(food.lower())
-        if not food_item:
-            await interaction.response.send_message(embed=make_embed("Error", "That food isn't sold in the shop."), ephemeral=True)
-            return
-
-        if not food_is_valid_for(food_item, pet["species"]):
-            suitable = ", ".join(f["name"] for f in get_food_options(pet["species"]))
-            await interaction.response.send_message(
-                embed=make_embed(
-                    "Error",
-                    f"**{food_item['name']}** isn't suitable for a {pet['species']}.\n"
-                    f"Try: {suitable}",
-                ),
-                ephemeral=True,
-            )
-            return
-
-        user = await self.db.get_user(interaction.user.id)
-        if user["balance"] < food_item["cost"]:
-            await interaction.response.send_message(embed=make_embed("Error", "You do not have enough cash on hand."), ephemeral=True)
-            return
-
-        await self.db.add_balance(interaction.user.id, -food_item["cost"])
-
-        new_hunger = min(100, pet["hunger"] + food_item["hunger"])
-        new_exp, new_level, leveled = add_pet_exp(pet, food_item["exp"])
-        await self.db.update_pet(pet_id, last_fed=time.time(), hunger=new_hunger, exp=new_exp, level=new_level)
-
-        leveled_up_owner = await track_activity(self.db, interaction.user.id)
-        desc = f"You fed **{pet['name'] or pet['species']}** some {food_item['name']}. Hunger: `{new_hunger}/100`."
-        if leveled:
-            desc += f"\n{pet['name'] or pet['species']} leveled up to **level {new_level}**!"
-        if leveled_up_owner:
-            desc += "\nYou leveled up!"
-        embed = make_embed("Pet Fed", desc)
-        await interaction.response.send_message(embed=embed)
-
-    @app_commands.command(name="play", description="Play with a pet")
-    @app_commands.describe(pet_id="The ID of the pet to play with (see /profile Pets)")
-    async def play_cmd(self, interaction: discord.Interaction, pet_id: int):
-        pet = await self.db.get_pet(pet_id)
-        if not pet or pet["owner_id"] != interaction.user.id or not pet["alive"]:
-            await interaction.response.send_message(embed=make_embed("Error", "You do not own that pet."), ephemeral=True)
-            return
-
-        new_happiness = min(100, pet["happiness"] + random.randint(5, 15))
-        exp_gain = random.randint(5, 12)
-        new_exp, new_level, leveled = add_pet_exp(pet, exp_gain)
-        await self.db.update_pet(pet_id, happiness=new_happiness, exp=new_exp, level=new_level)
-
-        leveled_up_owner = await track_activity(self.db, interaction.user.id)
-        desc = f"You played with **{pet['name'] or pet['species']}**. Happiness: `{new_happiness}/100` (+{exp_gain} EXP)."
-        if leveled:
-            desc += f"\n{pet['name'] or pet['species']} leveled up to **level {new_level}**!"
-        if leveled_up_owner:
-            desc += "\nYou leveled up!"
-        embed = make_embed("Playtime", desc)
-        await interaction.response.send_message(embed=embed)
 
 
 async def setup(bot: commands.Bot):
