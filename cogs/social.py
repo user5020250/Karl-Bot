@@ -56,9 +56,8 @@ HELP_CATEGORIES = {
     ],
     "Gambling": [
         ("/scatter", "Try your luck at Scatter"),
-        ("/colorgame", "Try your luck at Color Game"),
-        ("/tongits", "Try your luck at Tongits"),
-        ("/sabong", "Try your luck at Sabong"),
+        ("/777", "Spin for the jackpot - hit all 7s to win the whole pool"),
+        ("/jackpot", "Check the current jackpot pool"),
     ],
     "Pets": [
         ("/petshop", "Show the pet shop"),
@@ -221,8 +220,8 @@ class SocialCog(commands.Cog):
 
             stats_by_game = {r["game"]: r for r in await self.db.get_gambling_stats(target.id)}
             lines = []
-            for game_key in config.GAMBLING_GAMES:
-                name = GAME_NAMES.get(game_key, game_key.capitalize())
+            for game_key in ("scatter", "777"):
+                name = GAME_NAMES.get(game_key, "777 Jackpot" if game_key == "777" else game_key.capitalize())
                 stat = stats_by_game.get(game_key)
                 won = stat["won"] if stat else 0
                 lost = stat["lost"] if stat else 0
