@@ -26,6 +26,14 @@ JACKPOT_SYMBOLS = ["🍒", "🍋", "🍊", "🍇", "🔔", "⭐", "7️⃣"]
 JACKPOT_WINNING_SYMBOL = JACKPOT_SYMBOLS[-1]
 
 
+def render_slot_machine(reels: list) -> str:
+    """Renders the three reels as a simple slot-machine style readout.
+    Avoids box-drawing characters since emoji are double-width and break
+    monospace alignment across clients/fonts.
+    """
+    return f"🎰 [ {reels[0]} | {reels[1]} | {reels[2]} ] 🎰"
+
+
 class GamblingCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -141,7 +149,7 @@ class GamblingCog(commands.Cog):
         await self.db.add_to_jackpot(JACKPOT_ENTRY_FEE)
 
         reels = [random.choice(JACKPOT_SYMBOLS) for _ in range(3)]
-        reel_display = " ".join(reels)
+        reel_display = render_slot_machine(reels)
 
         hit_jackpot = all(
             symbol == JACKPOT_WINNING_SYMBOL
