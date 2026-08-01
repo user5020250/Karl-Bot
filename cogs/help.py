@@ -142,13 +142,6 @@ CATEGORIES = {
         ("/dance", "Dance with another user.", "None"),
     ],
     "Games": [
-        ("/guess", "Guess the hidden number.", "None"),
-        ("/hangman", "Guess the hidden word.", "None"),
-        ("/wordle", "Play Wordle.", "None"),
-        ("/typingtest", "Test typing speed.", "None"),
-        ("/math", "Solve a random math problem.", "None"),
-        ("/fastclick", "Click as fast as possible.", "None"),
-        ("/scramble", "Unscramble a word.", "None"),
         ("/connect4", "Play Connect Four with another user.", "None"),
         ("/rps", "Rock Paper Scissors battle.", "None"),
         ("/checkers", "Play checkers against another player.", "None"),
