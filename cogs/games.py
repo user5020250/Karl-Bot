@@ -35,8 +35,6 @@ TYPING_SENTENCES = [
     "Packed with courage, the small kitten explored the yard.",
 ]
 
-MEMORY_EMOJIS = ["🔴", "🟢", "🔵", "🟡", "🟣", "🟠", "⚪", "⚫"]
-
 MATH_OPS = {
     "+": operator.add,
     "-": operator.sub,
@@ -178,6 +176,16 @@ class HangmanView(discord.ui.View):
 
     def build_embed(self, extra: str = "") -> discord.Embed:
         embed = make_embed("Hangman", HANGMAN_STAGES[min(self.wrong, self.max_wrong)])
+        if not self.guessed:
+            embed.add_field(
+                name="How to Play",
+                value=(
+                    "Click **Guess a Letter** and submit one letter at a time. "
+                    "Correct letters fill in the blanks; wrong letters build the gallows. "
+                    f"Guess the whole word before `{self.max_wrong}` wrong guesses!"
+                ),
+                inline=False,
+            )
         embed.add_field(name="Word", value=self.display_word(), inline=False)
         wrong_letters = ", ".join(sorted(l for l in self.guessed if l not in self.word)) or "None"
         embed.add_field(name="Wrong guesses", value=wrong_letters, inline=False)
@@ -268,8 +276,17 @@ class WordleView(discord.ui.View):
 
     def build_embed(self, extra: str = "") -> discord.Embed:
         lines = [f"{self.score_guess(g)}   `{g.upper()}`" for g in self.guesses]
-        description = "\n".join(lines) if lines else "No guesses yet."
+        description = (
+            "\n".join(lines)
+            if lines
+            else "Click **Guess** and submit a 5-letter word to make your first guess."
+        )
         embed = make_embed("Wordle", description)
+        embed.add_field(
+            name="Legend",
+            value="🟩 correct letter, correct spot   🟨 correct letter, wrong spot   ⬜ not in the word",
+            inline=False,
+        )
         embed.set_footer(text=f"{len(self.guesses)}/{self.max_attempts} guesses")
         if extra:
             embed.add_field(name="\u200b", value=extra, inline=False)
@@ -370,77 +387,6 @@ class TypingView(discord.ui.View):
             item.disabled = True
         await safe_edit(self.message, view=self)
 
-
-# ---------------------------------------------------------------------------
-# /memory
-# ---------------------------------------------------------------------------
-class MemoryModal(discord.ui.Modal, title="Recall the Sequence"):
-    def __init__(self, view: "MemoryView"):
-        super().__init__()
-        self.view_ref = view
-        self.answer = discord.ui.TextInput(
-            label="Enter emojis in order, space separated", max_length=100
-        )
-        self.add_item(self.answer)
-
-    async def on_submit(self, interaction: discord.Interaction):
-        await self.view_ref.handle_answer(interaction, self.answer.value)
-
-
-class MemoryView(discord.ui.View):
-    def __init__(self, author_id: int):
-        super().__init__(timeout=120)
-        self.author_id = author_id
-        self.round = 1
-        self.sequence: list[str] = []
-        self.message: discord.Message = None
-
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        if interaction.user.id != self.author_id:
-            await interaction.response.send_message("This isn't your game.", ephemeral=True)
-            return False
-        return True
-
-    def next_sequence(self):
-        self.sequence = [random.choice(MEMORY_EMOJIS) for _ in range(self.round + 2)]
-
-    @discord.ui.button(label="Recall", style=discord.ButtonStyle.primary)
-    async def recall_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(MemoryModal(self))
-
-    async def handle_answer(self, interaction: discord.Interaction, raw: str):
-        answer = raw.strip().split()
-        if answer == self.sequence:
-            self.round += 1
-            self.next_sequence()
-            embed = make_embed(
-                "Memory Challenge",
-                f"✅ Correct! Round `{self.round}`.\n\nMemorize: {' '.join(self.sequence)}",
-            )
-            embed.set_footer(text="The sequence will be hidden shortly.")
-            await interaction.response.edit_message(embed=embed, view=self)
-            await asyncio.sleep(3)
-            hidden = make_embed(
-                "Memory Challenge", f"Round `{self.round}` — recall the sequence you saw."
-            )
-            try:
-                await interaction.edit_original_response(embed=hidden, view=self)
-            except discord.HTTPException:
-                pass
-        else:
-            for item in self.children:
-                item.disabled = True
-            embed = make_embed(
-                "Memory Challenge",
-                f"❌ Wrong! You reached round `{self.round}`.\nCorrect sequence: {' '.join(self.sequence)}",
-            )
-            await interaction.response.edit_message(embed=embed, view=self)
-            self.stop()
-
-    async def on_timeout(self):
-        for item in self.children:
-            item.disabled = True
-        await safe_edit(self.message, view=self)
 
 
 # ---------------------------------------------------------------------------
@@ -712,7 +658,9 @@ class Connect4View(discord.ui.View):
     def build_embed(self, extra: str = "") -> discord.Embed:
         embed = make_embed(
             "Connect Four",
-            f"{self.render_board()}\n\n{self.P1} {self.order[0].mention}  vs  {self.P2} {self.order[1].mention}",
+            f"{self.render_board()}\n\n{self.P1} {self.order[0].mention}  vs  {self.P2} {self.order[1].mention}\n\n"
+            "Click a numbered column button to drop your piece there. "
+            "First to connect **4 in a row** — horizontally, vertically, or diagonally — wins!",
         )
         if extra:
             embed.add_field(name="\u200b", value=extra, inline=False)
@@ -743,7 +691,10 @@ class Games(commands.Cog):
         view = GuessView(author_id=interaction.user.id, target=target)
         embed = make_embed(
             "Guess the Number",
-            "I'm thinking of a number between **1** and **100**. You have `7` attempts.",
+            "I'm thinking of a number between **1** and **100**.\n\n"
+            "**How to play:** click **Make a Guess**, type a number, and submit. "
+            "I'll tell you if the answer is **higher** or **lower** so you can narrow it down.\n\n"
+            "You have `7` attempts.",
         )
         await interaction.response.send_message(embed=embed, view=view)
         view.message = await interaction.original_response()
@@ -773,18 +724,6 @@ class Games(commands.Cog):
         await interaction.response.send_message(embed=embed, view=view)
         view.message = await interaction.original_response()
 
-    @app_commands.command(name="memory", description="Memory challenge.")
-    async def memory(self, interaction: discord.Interaction):
-        view = MemoryView(author_id=interaction.user.id)
-        view.next_sequence()
-        embed = make_embed(
-            "Memory Challenge",
-            f"Round `1` — memorize this sequence:\n\n{' '.join(view.sequence)}",
-        )
-        embed.set_footer(text="Click Recall once you're ready to enter it.")
-        await interaction.response.send_message(embed=embed, view=view)
-        view.message = await interaction.original_response()
-
     @app_commands.command(name="math", description="Solve a random math problem.")
     async def math(self, interaction: discord.Interaction):
         a, b = random.randint(1, 50), random.randint(1, 50)
@@ -792,7 +731,11 @@ class Games(commands.Cog):
         expression = f"{a} {op} {b}"
         answer = MATH_OPS[op](a, b)
         view = MathView(author_id=interaction.user.id, expression=expression, answer=answer)
-        embed = make_embed("Math Challenge", f"Solve: `{expression}`\nYou have `60` seconds.")
+        embed = make_embed(
+            "Math Challenge",
+            f"Solve: `{expression}`\n\nClick **Answer** and type the result as a whole number. "
+            "You have `60` seconds.",
+        )
         await interaction.response.send_message(embed=embed, view=view)
         view.message = await interaction.original_response()
 
@@ -801,7 +744,9 @@ class Games(commands.Cog):
         view = FastClickView(author_id=interaction.user.id)
         embed = make_embed(
             "Fast Click",
-            "Wait for the button to turn green, then click it as fast as you can!\nClicking too early loses.",
+            "The button below says **Wait for it...** — don't click it yet!\n"
+            "After a random delay it will turn green and say **CLICK NOW!** — click it as fast as you can. "
+            "Clicking before it turns green loses instantly.",
         )
         await interaction.response.send_message(embed=embed, view=view)
         view.message = await interaction.original_response()
@@ -816,7 +761,11 @@ class Games(commands.Cog):
             random.shuffle(letters)
             scrambled = "".join(letters)
         view = ScrambleView(author_id=interaction.user.id, word=word, scrambled=scrambled)
-        embed = make_embed("Scramble", f"Unscramble this word: `{scrambled}`")
+        embed = make_embed(
+            "Scramble",
+            f"Unscramble this word: `{scrambled}`\n\n"
+            f"It's `{len(word)}` letters long. Click **Guess** and type your answer.",
+        )
         await interaction.response.send_message(embed=embed, view=view)
         view.message = await interaction.original_response()
 
