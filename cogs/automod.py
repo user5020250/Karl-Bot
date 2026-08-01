@@ -50,6 +50,55 @@ SETTINGS_KEY = "automod3"  # fresh storage key, keeps old data out of the way
 
 
 # ============================================================
+# FILTER METADATA (drives the panel: labels + which ones have
+# configurable numeric limits and what those fields are)
+# ============================================================
+
+FILTER_INFO = {
+    "links": {"label": "Links", "fields": None},
+    "invites": {"label": "Invites", "fields": None},
+    "gif": {"label": "GIFs", "fields": None},
+    "duplicate": {"label": "Duplicate Messages", "fields": None},
+    "bot": {"label": "Anti Bot", "fields": None},
+    "profanity": {"label": "Profanity", "fields": None},
+    "spam": {
+        "label": "Anti Spam",
+        "fields": [
+            ("limit", "Max messages allowed", "e.g. 5"),
+            ("seconds", "Time window (seconds)", "e.g. 5"),
+        ],
+    },
+    "mentions": {
+        "label": "Mention Limit",
+        "fields": [("limit", "Max mentions per message", "e.g. 5")],
+    },
+    "raid": {
+        "label": "Raid Protection",
+        "fields": [
+            ("joins", "Joins to trigger an alert", "e.g. 10"),
+            ("seconds", "Time window (seconds)", "e.g. 30"),
+        ],
+    },
+    "emoji": {
+        "label": "Emoji Limit",
+        "fields": [("limit", "Max emoji per message", "e.g. 10")],
+    },
+    "caps": {
+        "label": "Caps Filter",
+        "fields": [("percent", "Max uppercase percent (0-100)", "e.g. 70")],
+    },
+}
+
+
+def default_cfg(key: str) -> dict:
+    if key in DEFAULTS:
+        return dict(DEFAULTS[key])
+    if key == "profanity":
+        return {"enabled": False, "words": []}
+    return {"enabled": False}
+
+
+# ============================================================
 # SETTINGS HELPERS
 # ============================================================
 
@@ -77,13 +126,205 @@ def set_enabled(guild_id: int, key: str, enabled: bool, defaults: dict | None = 
 
 def status_embed(filter_name: str, cfg: dict) -> discord.Embed:
     enabled = cfg.get("enabled", False)
-    status = "🟢 Enabled" if enabled else "🔴 Disabled"
+    status = "Enabled" if enabled else "Disabled"
 
-    extras = {k: v for k, v in cfg.items() if k != "enabled"}
+    extras = {k: v for k, v in cfg.items() if k != "enabled" and k != "words"}
     if extras:
         status += "\n" + ", ".join(f"{k}: `{v}`" for k, v in extras.items())
 
     return make_embed(filter_name, status)
+
+
+def build_panel_embed(guild_id: int) -> discord.Embed:
+    settings = get_settings(guild_id)
+    lines = []
+    for key, info in FILTER_INFO.items():
+        cfg = settings.get(key, {})
+        enabled = cfg.get("enabled", False)
+        status = "Enabled" if enabled else "Disabled"
+
+        extras = ""
+        if info["fields"]:
+            parts = [f"{fkey}: {cfg.get(fkey, dict(DEFAULTS[key])[fkey])}" for fkey, _, _ in info["fields"]]
+            extras = " (" + ", ".join(parts) + ")"
+
+        lines.append(f"**{info['label']}** — {status}{extras}")
+
+    return make_embed("AutoMod Panel", "\n".join(lines))
+
+
+def _parse_int(raw: str, field_label: str) -> int:
+    """Raises ValueError with a friendly message if raw isn't a valid non-negative int."""
+    try:
+        value = int(raw.strip())
+    except (ValueError, AttributeError):
+        raise ValueError(f"`{field_label}` must be a whole number.")
+    if value < 0:
+        raise ValueError(f"`{field_label}` must be zero or greater.")
+    return value
+
+
+# ============================================================
+# LIMIT CONFIG MODAL (generic — used for spam/mentions/raid/emoji/caps)
+# ============================================================
+
+class LimitConfigModal(discord.ui.Modal):
+    def __init__(
+        self,
+        key: str,
+        label: str,
+        fields: list,
+        current: dict,
+        guild_id: int,
+        panel_message: discord.Message | None = None,
+        panel_view: "AutoModPanelView | None" = None,
+    ):
+        super().__init__(title=f"Configure {label}")
+        self.key = key
+        self.label = label
+        self.fields_meta = fields
+        self.guild_id = guild_id
+        self.panel_message = panel_message
+        self.panel_view = panel_view
+        self.inputs = {}
+
+        for field_key, field_label, placeholder in fields:
+            text_input = discord.ui.TextInput(
+                label=field_label,
+                placeholder=placeholder,
+                default=str(current.get(field_key, "")),
+                required=True,
+                max_length=6,
+            )
+            self.inputs[field_key] = text_input
+            self.add_item(text_input)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        parsed = {}
+        for field_key, field_label, _ in self.fields_meta:
+            try:
+                parsed[field_key] = _parse_int(self.inputs[field_key].value, field_label)
+            except ValueError as e:
+                await interaction.response.send_message(str(e), ephemeral=True)
+                return
+
+        if self.key == "caps" and parsed.get("percent", 0) > 100:
+            await interaction.response.send_message(
+                "`Max uppercase percent` must be between 0 and 100.", ephemeral=True
+            )
+            return
+
+        settings = get_settings(self.guild_id)
+        cfg = settings.get(self.key, default_cfg(self.key))
+        cfg.update(parsed)
+        update_setting(self.guild_id, self.key, cfg)
+
+        if self.panel_message is not None:
+            try:
+                await self.panel_message.edit(embed=build_panel_embed(self.guild_id), view=self.panel_view)
+            except discord.HTTPException:
+                pass
+
+        await interaction.response.send_message(embed=status_embed(self.label, cfg), ephemeral=True)
+
+
+# ============================================================
+# PANEL VIEW (select + enable/disable/configure buttons)
+# ============================================================
+
+class FilterSelect(discord.ui.Select):
+    def __init__(self):
+        options = [
+            discord.SelectOption(label=info["label"], value=key)
+            for key, info in FILTER_INFO.items()
+        ]
+        super().__init__(placeholder="Choose a filter to manage", options=options, row=0)
+
+    async def callback(self, interaction: discord.Interaction):
+        view: AutoModPanelView = self.view
+        view.selected = self.values[0]
+        view.refresh()
+        await interaction.response.edit_message(embed=build_panel_embed(view.guild_id), view=view)
+
+
+class EnableButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__(label="Enable", style=discord.ButtonStyle.success, disabled=True, row=1)
+
+    async def callback(self, interaction: discord.Interaction):
+        view: AutoModPanelView = self.view
+        key = view.selected
+        set_enabled(view.guild_id, key, True, default_cfg(key))
+        view.refresh()
+        await interaction.response.edit_message(embed=build_panel_embed(view.guild_id), view=view)
+
+
+class DisableButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__(label="Disable", style=discord.ButtonStyle.danger, disabled=True, row=1)
+
+    async def callback(self, interaction: discord.Interaction):
+        view: AutoModPanelView = self.view
+        key = view.selected
+        set_enabled(view.guild_id, key, False, default_cfg(key))
+        view.refresh()
+        await interaction.response.edit_message(embed=build_panel_embed(view.guild_id), view=view)
+
+
+class ConfigureButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__(label="Configure Limits", style=discord.ButtonStyle.primary, disabled=True, row=1)
+
+    async def callback(self, interaction: discord.Interaction):
+        view: AutoModPanelView = self.view
+        key = view.selected
+        info = FILTER_INFO[key]
+
+        if not info["fields"]:
+            await interaction.response.send_message("This filter has no configurable limits.", ephemeral=True)
+            return
+
+        settings = get_settings(view.guild_id)
+        current = settings.get(key, default_cfg(key))
+        modal = LimitConfigModal(
+            key, info["label"], info["fields"], current, view.guild_id,
+            panel_message=interaction.message, panel_view=view,
+        )
+        await interaction.response.send_modal(modal)
+
+
+class AutoModPanelView(discord.ui.View):
+    def __init__(self, guild_id: int):
+        super().__init__(timeout=300)
+        self.guild_id = guild_id
+        self.selected: str | None = None
+
+        self.select = FilterSelect()
+        self.enable_btn = EnableButton()
+        self.disable_btn = DisableButton()
+        self.configure_btn = ConfigureButton()
+
+        self.add_item(self.select)
+        self.add_item(self.enable_btn)
+        self.add_item(self.disable_btn)
+        self.add_item(self.configure_btn)
+
+    def refresh(self):
+        if self.selected is None:
+            self.enable_btn.disabled = True
+            self.disable_btn.disabled = True
+            self.configure_btn.disabled = True
+            return
+
+        info = FILTER_INFO[self.selected]
+        settings = get_settings(self.guild_id)
+        cfg = settings.get(self.selected, {})
+        enabled = cfg.get("enabled", False)
+
+        self.enable_btn.disabled = enabled
+        self.disable_btn.disabled = not enabled
+        self.configure_btn.disabled = info["fields"] is None
+        self.select.placeholder = f"Filter: {info['label']}"
 
 
 # ============================================================
@@ -95,17 +336,7 @@ automod_group = app_commands.Group(
     description="Configure AutoMod protections"
 )
 
-links_group = app_commands.Group(name="links", description="Link filter", parent=automod_group)
-invites_group = app_commands.Group(name="invites", description="Discord invite filter", parent=automod_group)
-gif_group = app_commands.Group(name="gif", description="GIF filter", parent=automod_group)
-duplicate_group = app_commands.Group(name="duplicate", description="Duplicate message filter", parent=automod_group)
-antibot_group = app_commands.Group(name="antibot", description="Unauthorized bot filter", parent=automod_group)
 profanity_group = app_commands.Group(name="profanity", description="Profanity filter", parent=automod_group)
-spam_group = app_commands.Group(name="spam", description="Anti-spam filter", parent=automod_group)
-mentions_group = app_commands.Group(name="mentions", description="Mention limit filter", parent=automod_group)
-raid_group = app_commands.Group(name="raid", description="Raid protection", parent=automod_group)
-emoji_group = app_commands.Group(name="emoji", description="Emoji limit filter", parent=automod_group)
-caps_group = app_commands.Group(name="caps", description="Caps filter", parent=automod_group)
 whitelist_group = app_commands.Group(name="whitelist", description="Manage AutoMod whitelist", parent=automod_group)
 blacklist_group = app_commands.Group(name="blacklist", description="Manage AutoMod blacklist", parent=automod_group)
 ignore_group = app_commands.Group(name="ignore", description="Manage ignored channels/roles", parent=automod_group)
@@ -167,106 +398,19 @@ class AutoMod(commands.Cog):
         await send_log(message.guild, embed)
 
     # --------------------------------------------------------
-    # LINKS
+    # PANEL
     # --------------------------------------------------------
 
-    @links_group.command(name="enable", description="Enable the link filter.")
+    @automod_group.command(name="panel", description="Open the AutoMod control panel.")
     @app_commands.checks.has_permissions(administrator=True)
-    async def links_enable(self, interaction: discord.Interaction):
-        cfg = set_enabled(interaction.guild.id, "links", True)
-        await interaction.response.send_message(embed=status_embed("Links", cfg), ephemeral=True)
-
-    @links_group.command(name="disable", description="Disable the link filter.")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def links_disable(self, interaction: discord.Interaction):
-        cfg = set_enabled(interaction.guild.id, "links", False)
-        await interaction.response.send_message(embed=status_embed("Links", cfg), ephemeral=True)
+    async def automod_panel(self, interaction: discord.Interaction):
+        view = AutoModPanelView(interaction.guild.id)
+        view.refresh()
+        await interaction.response.send_message(embed=build_panel_embed(interaction.guild.id), view=view)
 
     # --------------------------------------------------------
-    # INVITES
+    # PROFANITY (word list management stays as commands)
     # --------------------------------------------------------
-
-    @invites_group.command(name="enable", description="Enable the Discord invite filter.")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def invites_enable(self, interaction: discord.Interaction):
-        cfg = set_enabled(interaction.guild.id, "invites", True)
-        await interaction.response.send_message(embed=status_embed("Invites", cfg), ephemeral=True)
-
-    @invites_group.command(name="disable", description="Disable the Discord invite filter.")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def invites_disable(self, interaction: discord.Interaction):
-        cfg = set_enabled(interaction.guild.id, "invites", False)
-        await interaction.response.send_message(embed=status_embed("Invites", cfg), ephemeral=True)
-
-    # --------------------------------------------------------
-    # GIF
-    # --------------------------------------------------------
-
-    @gif_group.command(name="enable", description="Enable the GIF filter.")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def gif_enable(self, interaction: discord.Interaction):
-        cfg = set_enabled(interaction.guild.id, "gif", True)
-        await interaction.response.send_message(embed=status_embed("GIFs", cfg), ephemeral=True)
-
-    @gif_group.command(name="disable", description="Disable the GIF filter.")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def gif_disable(self, interaction: discord.Interaction):
-        cfg = set_enabled(interaction.guild.id, "gif", False)
-        await interaction.response.send_message(embed=status_embed("GIFs", cfg), ephemeral=True)
-
-    # --------------------------------------------------------
-    # DUPLICATE
-    # --------------------------------------------------------
-
-    @duplicate_group.command(name="enable", description="Enable the duplicate message filter.")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def duplicate_enable(self, interaction: discord.Interaction):
-        cfg = set_enabled(interaction.guild.id, "duplicate", True)
-        await interaction.response.send_message(embed=status_embed("Duplicate Messages", cfg), ephemeral=True)
-
-    @duplicate_group.command(name="disable", description="Disable the duplicate message filter.")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def duplicate_disable(self, interaction: discord.Interaction):
-        cfg = set_enabled(interaction.guild.id, "duplicate", False)
-        await interaction.response.send_message(embed=status_embed("Duplicate Messages", cfg), ephemeral=True)
-
-    # --------------------------------------------------------
-    # ANTI BOT
-    # --------------------------------------------------------
-
-    @antibot_group.command(name="enable", description="Enable kicking unauthorized bots on join.")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def antibot_enable(self, interaction: discord.Interaction):
-        cfg = set_enabled(interaction.guild.id, "bot", True)
-        await interaction.response.send_message(embed=status_embed("Anti Bot", cfg), ephemeral=True)
-
-    @antibot_group.command(name="disable", description="Disable kicking unauthorized bots on join.")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def antibot_disable(self, interaction: discord.Interaction):
-        cfg = set_enabled(interaction.guild.id, "bot", False)
-        await interaction.response.send_message(embed=status_embed("Anti Bot", cfg), ephemeral=True)
-
-    # --------------------------------------------------------
-    # PROFANITY
-    # --------------------------------------------------------
-
-    @profanity_group.command(name="enable", description="Enable the profanity filter.")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def profanity_enable(self, interaction: discord.Interaction):
-        settings = get_settings(interaction.guild.id)
-        cfg = settings.get("profanity", {"words": []})
-        cfg["enabled"] = True
-        update_setting(interaction.guild.id, "profanity", cfg)
-        await interaction.response.send_message(embed=status_embed("Profanity", cfg), ephemeral=True)
-
-    @profanity_group.command(name="disable", description="Disable the profanity filter.")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def profanity_disable(self, interaction: discord.Interaction):
-        settings = get_settings(interaction.guild.id)
-        cfg = settings.get("profanity", {"words": []})
-        cfg["enabled"] = False
-        update_setting(interaction.guild.id, "profanity", cfg)
-        await interaction.response.send_message(embed=status_embed("Profanity", cfg), ephemeral=True)
 
     @profanity_group.command(name="add", description="Add a word to the profanity filter.")
     @app_commands.checks.has_permissions(administrator=True)
@@ -308,138 +452,6 @@ class AutoMod(commands.Cog):
             embed=make_embed("Blocked Words", ", ".join(words) if words else "No blocked words"),
             ephemeral=True,
         )
-
-    # --------------------------------------------------------
-    # SPAM
-    # --------------------------------------------------------
-
-    @spam_group.command(name="enable", description="Enable the anti-spam filter.")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def spam_enable(self, interaction: discord.Interaction):
-        cfg = set_enabled(interaction.guild.id, "spam", True, DEFAULTS["spam"])
-        await interaction.response.send_message(embed=status_embed("Anti Spam", cfg), ephemeral=True)
-
-    @spam_group.command(name="disable", description="Disable the anti-spam filter.")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def spam_disable(self, interaction: discord.Interaction):
-        cfg = set_enabled(interaction.guild.id, "spam", False, DEFAULTS["spam"])
-        await interaction.response.send_message(embed=status_embed("Anti Spam", cfg), ephemeral=True)
-
-    @spam_group.command(name="configure", description="Configure anti-spam message limit and time window.")
-    @app_commands.describe(limit="Max messages allowed", seconds="Time window in seconds")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def spam_configure(self, interaction: discord.Interaction, limit: int, seconds: int):
-        settings = get_settings(interaction.guild.id)
-        cfg = settings.get("spam", dict(DEFAULTS["spam"]))
-        cfg["limit"] = limit
-        cfg["seconds"] = seconds
-        update_setting(interaction.guild.id, "spam", cfg)
-        await interaction.response.send_message(embed=status_embed("Anti Spam", cfg), ephemeral=True)
-
-    # --------------------------------------------------------
-    # MENTIONS
-    # --------------------------------------------------------
-
-    @mentions_group.command(name="enable", description="Enable the mention limit filter.")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def mentions_enable(self, interaction: discord.Interaction):
-        cfg = set_enabled(interaction.guild.id, "mentions", True, DEFAULTS["mentions"])
-        await interaction.response.send_message(embed=status_embed("Mention Limit", cfg), ephemeral=True)
-
-    @mentions_group.command(name="disable", description="Disable the mention limit filter.")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def mentions_disable(self, interaction: discord.Interaction):
-        cfg = set_enabled(interaction.guild.id, "mentions", False, DEFAULTS["mentions"])
-        await interaction.response.send_message(embed=status_embed("Mention Limit", cfg), ephemeral=True)
-
-    @mentions_group.command(name="configure", description="Configure the max mentions allowed per message.")
-    @app_commands.describe(limit="Max mentions allowed per message")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def mentions_configure(self, interaction: discord.Interaction, limit: int):
-        settings = get_settings(interaction.guild.id)
-        cfg = settings.get("mentions", dict(DEFAULTS["mentions"]))
-        cfg["limit"] = limit
-        update_setting(interaction.guild.id, "mentions", cfg)
-        await interaction.response.send_message(embed=status_embed("Mention Limit", cfg), ephemeral=True)
-
-    # --------------------------------------------------------
-    # RAID
-    # --------------------------------------------------------
-
-    @raid_group.command(name="enable", description="Enable raid protection.")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def raid_enable(self, interaction: discord.Interaction):
-        cfg = set_enabled(interaction.guild.id, "raid", True, DEFAULTS["raid"])
-        await interaction.response.send_message(embed=status_embed("Raid Protection", cfg), ephemeral=True)
-
-    @raid_group.command(name="disable", description="Disable raid protection.")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def raid_disable(self, interaction: discord.Interaction):
-        cfg = set_enabled(interaction.guild.id, "raid", False, DEFAULTS["raid"])
-        await interaction.response.send_message(embed=status_embed("Raid Protection", cfg), ephemeral=True)
-
-    @raid_group.command(name="configure", description="Configure raid protection join count and time window.")
-    @app_commands.describe(joins="Number of joins to trigger an alert", seconds="Time window in seconds")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def raid_configure(self, interaction: discord.Interaction, joins: int, seconds: int):
-        settings = get_settings(interaction.guild.id)
-        cfg = settings.get("raid", dict(DEFAULTS["raid"]))
-        cfg["joins"] = joins
-        cfg["seconds"] = seconds
-        update_setting(interaction.guild.id, "raid", cfg)
-        await interaction.response.send_message(embed=status_embed("Raid Protection", cfg), ephemeral=True)
-
-    # --------------------------------------------------------
-    # EMOJI
-    # --------------------------------------------------------
-
-    @emoji_group.command(name="enable", description="Enable the emoji limit filter.")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def emoji_enable(self, interaction: discord.Interaction):
-        cfg = set_enabled(interaction.guild.id, "emoji", True, DEFAULTS["emoji"])
-        await interaction.response.send_message(embed=status_embed("Emoji Limit", cfg), ephemeral=True)
-
-    @emoji_group.command(name="disable", description="Disable the emoji limit filter.")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def emoji_disable(self, interaction: discord.Interaction):
-        cfg = set_enabled(interaction.guild.id, "emoji", False, DEFAULTS["emoji"])
-        await interaction.response.send_message(embed=status_embed("Emoji Limit", cfg), ephemeral=True)
-
-    @emoji_group.command(name="configure", description="Configure the max emoji allowed per message.")
-    @app_commands.describe(limit="Max emoji allowed per message")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def emoji_configure(self, interaction: discord.Interaction, limit: int):
-        settings = get_settings(interaction.guild.id)
-        cfg = settings.get("emoji", dict(DEFAULTS["emoji"]))
-        cfg["limit"] = limit
-        update_setting(interaction.guild.id, "emoji", cfg)
-        await interaction.response.send_message(embed=status_embed("Emoji Limit", cfg), ephemeral=True)
-
-    # --------------------------------------------------------
-    # CAPS
-    # --------------------------------------------------------
-
-    @caps_group.command(name="enable", description="Enable the caps filter.")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def caps_enable(self, interaction: discord.Interaction):
-        cfg = set_enabled(interaction.guild.id, "caps", True, DEFAULTS["caps"])
-        await interaction.response.send_message(embed=status_embed("Caps Filter", cfg), ephemeral=True)
-
-    @caps_group.command(name="disable", description="Disable the caps filter.")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def caps_disable(self, interaction: discord.Interaction):
-        cfg = set_enabled(interaction.guild.id, "caps", False, DEFAULTS["caps"])
-        await interaction.response.send_message(embed=status_embed("Caps Filter", cfg), ephemeral=True)
-
-    @caps_group.command(name="configure", description="Configure the max caps percentage allowed per message.")
-    @app_commands.describe(percent="Max percentage of uppercase letters allowed (0-100)")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def caps_configure(self, interaction: discord.Interaction, percent: int):
-        settings = get_settings(interaction.guild.id)
-        cfg = settings.get("caps", dict(DEFAULTS["caps"]))
-        cfg["percent"] = percent
-        update_setting(interaction.guild.id, "caps", cfg)
-        await interaction.response.send_message(embed=status_embed("Caps Filter", cfg), ephemeral=True)
 
     # --------------------------------------------------------
     # WHITELIST
