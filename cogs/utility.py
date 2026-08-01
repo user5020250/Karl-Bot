@@ -205,41 +205,50 @@ class Utility(commands.Cog):
     # --------------------
     # STICKY
     # --------------------
-
+    
     @app_commands.command(
         name="sticky",
-        description="Creates a sticky message."
+        description="Creates a sticky embed message."
     )
     @app_commands.checks.has_permissions(manage_messages=True)
     async def sticky(
         self,
         interaction: discord.Interaction,
+        title: str,
         message: str
     ):
-
-        self.sticky_messages[interaction.channel.id] = message
-
+    
+        embed = discord.Embed(
+            title=title,
+            description=message,
+            color=BLACK
+        )
+    
+        self.sticky_messages[interaction.channel.id] = embed
+    
         await interaction.response.send_message(
             "Sticky message enabled.",
             ephemeral=True
         )
-
-        await interaction.channel.send(message)
-
-
+    
+        await interaction.channel.send(
+            embed=embed
+        )
+    
+    
     @commands.Cog.listener()
     async def on_message(self, message):
-
+    
         if message.author.bot:
             return
-
+    
         if message.channel.id in self.sticky_messages:
-
+    
+            embed = self.sticky_messages[message.channel.id]
+    
             await message.channel.send(
-                self.sticky_messages[message.channel.id]
+                embed=embed
             )
-
-
     # --------------------
     # PIN
     # --------------------
