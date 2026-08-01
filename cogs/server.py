@@ -162,7 +162,11 @@ class Server(commands.Cog):
             channel = member.guild.get_channel(int(welcome_cfg["channel_id"]))
             if channel is not None:
                 message = welcome_cfg.get("message", "Welcome {member} to {server}!")
-                message = message.replace("{member}", member.mention).replace("{server}", member.guild.name)
+                message = (
+                    message.replace("{member}", member.mention)
+                    .replace("{user}", member.mention)
+                    .replace("{server}", member.guild.name)
+                )
                 try:
                     await channel.send(message)
                 except discord.HTTPException:
@@ -175,7 +179,11 @@ class Server(commands.Cog):
             channel = member.guild.get_channel(int(goodbye_cfg["channel_id"]))
             if channel is not None:
                 message = goodbye_cfg.get("message", "{member} has left {server}.")
-                message = message.replace("{member}", str(member)).replace("{server}", member.guild.name)
+                message = (
+                    message.replace("{member}", str(member))
+                    .replace("{user}", str(member))
+                    .replace("{server}", member.guild.name)
+                )
                 try:
                     await channel.send(message)
                 except discord.HTTPException:
@@ -185,7 +193,7 @@ class Server(commands.Cog):
     # Welcome / goodbye / logs configuration
     # ---------------------------------------------------------------------
     @app_commands.command(name="welcome", description="Configure welcome messages.")
-    @app_commands.describe(channel="Channel to post welcome messages in", message="Message text. Use {member} and {server} as placeholders")
+    @app_commands.describe(channel="Channel to post welcome messages in", message="Message text. Use {member} (or {user}) and {server} as placeholders")
     @app_commands.checks.has_permissions(manage_guild=True)
     async def welcome(self, interaction: discord.Interaction, channel: discord.TextChannel, message: str = "Welcome {member} to {server}!"):
         storage.set_guild_setting("welcome", interaction.guild.id, {"channel_id": channel.id, "message": message})
@@ -193,7 +201,7 @@ class Server(commands.Cog):
         await interaction.response.send_message(embed=embed)
 
     @app_commands.command(name="goodbye", description="Configure leave messages.")
-    @app_commands.describe(channel="Channel to post leave messages in", message="Message text. Use {member} and {server} as placeholders")
+    @app_commands.describe(channel="Channel to post leave messages in", message="Message text. Use {member} (or {user}) and {server} as placeholders")
     @app_commands.checks.has_permissions(manage_guild=True)
     async def goodbye(self, interaction: discord.Interaction, channel: discord.TextChannel, message: str = "{member} has left {server}."):
         storage.set_guild_setting("goodbye", interaction.guild.id, {"channel_id": channel.id, "message": message})
