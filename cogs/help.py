@@ -28,6 +28,8 @@ CATEGORIES = {
         ("/purge files", "Deletes messages with attachments.", "Manage Messages"),
         ("/purge mentions", "Deletes messages containing mentions.", "Manage Messages"),
         ("/purge contains", "Deletes messages containing text.", "Manage Messages"),
+        ("/snipe", "Shows the last deleted message.", "Manage Messages"),
+        ("/editsnipe", "Shows the last edited message.", "Manage Messages"),
     ],
     "Channels": [
         ("/lock", "Locks a channel.", "Manage Channels"),
@@ -72,12 +74,17 @@ CATEGORIES = {
     "Server Config": [
         ("/lockdown", "Lock every channel.", "Administrator"),
         ("/unlockdown", "End lockdown.", "Administrator"),
+        ("/panic", "Panic mode (one-click server lockdown).", "Administrator"),
         ("/maintenance", "Toggle maintenance mode.", "Administrator"),
         ("/verify", "Verify a member.", "Manage Roles"),
         ("/unverify", "Remove verification.", "Manage Roles"),
         ("/autorole", "Configure automatic roles.", "Manage Roles"),
         ("/welcome", "Configure welcome messages.", "Manage Server"),
+        ("/welcome embed", "Toggle embed welcome.", "Manage Server"),
+        ("/welcome test", "Send a test welcome.", "Manage Server"),
         ("/goodbye", "Configure leave messages.", "Manage Server"),
+        ("/goodbye embed", "Toggle embed goodbye.", "Manage Server"),
+        ("/goodbye test", "Send a test goodbye.", "Manage Server"),
         ("/logs", "Configure log channels.", "Manage Server"),
     ],
     "Jail": [
