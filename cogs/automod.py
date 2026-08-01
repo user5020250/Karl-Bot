@@ -331,15 +331,14 @@ class AutoModPanelView(discord.ui.View):
 # COMMAND GROUPS
 # ============================================================
 
-automod_group = app_commands.Group(
-    name="automod",
-    description="Configure AutoMod protections"
-)
 
-profanity_group = app_commands.Group(name="profanity", description="Profanity filter", parent=automod_group)
-whitelist_group = app_commands.Group(name="whitelist", description="Manage AutoMod whitelist", parent=automod_group)
-blacklist_group = app_commands.Group(name="blacklist", description="Manage AutoMod blacklist", parent=automod_group)
-ignore_group = app_commands.Group(name="ignore", description="Manage ignored channels/roles", parent=automod_group)
+# NOTE: /automod is a single, directly-callable command (it opens the panel),
+# so it can't also be a Group with subcommands. These stay as their own
+# top-level groups instead of living under /automod.
+profanity_group = app_commands.Group(name="profanity", description="Profanity filter")
+whitelist_group = app_commands.Group(name="whitelist", description="Manage AutoMod whitelist")
+blacklist_group = app_commands.Group(name="blacklist", description="Manage AutoMod blacklist")
+ignore_group = app_commands.Group(name="ignore", description="Manage ignored channels/roles")
 
 
 # ============================================================
@@ -401,9 +400,9 @@ class AutoMod(commands.Cog):
     # PANEL
     # --------------------------------------------------------
 
-    @automod_group.command(name="panel", description="Open the AutoMod control panel.")
+    @app_commands.command(name="automod", description="Open the AutoMod control panel.")
     @app_commands.checks.has_permissions(administrator=True)
-    async def automod_panel(self, interaction: discord.Interaction):
+    async def automod(self, interaction: discord.Interaction):
         view = AutoModPanelView(interaction.guild.id)
         view.refresh()
         await interaction.response.send_message(embed=build_panel_embed(interaction.guild.id), view=view)
@@ -713,4 +712,7 @@ class AutoMod(commands.Cog):
 async def setup(bot: commands.Bot):
     cog = AutoMod(bot)
     await bot.add_cog(cog)
-    bot.tree.add_command(automod_group)
+    bot.tree.add_command(profanity_group)
+    bot.tree.add_command(whitelist_group)
+    bot.tree.add_command(blacklist_group)
+    bot.tree.add_command(ignore_group)
