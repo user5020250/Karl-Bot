@@ -113,53 +113,112 @@ class Utility(commands.Cog):
                 pass
 
     # ------------------------------------------------------------- sticky
-    @app_commands.command(name="sticky", description="Pins a message to the bottom by reposting it.")
-    @app_commands.describe(message="The sticky message content. Leave blank to clear the sticky in this channel.")
+
+    @app_commands.command(
+        name="sticky",
+        description="Pins a message to the bottom by reposting it."
+    )
+    @app_commands.describe(
+        message="Leave blank to clear the sticky."
+    )
     @app_commands.checks.has_permissions(manage_messages=True)
     @app_commands.checks.bot_has_permissions(manage_messages=True)
-    async def sticky(self, interaction: discord.Interaction, message: str = None):
+    async def sticky(
+        self,
+        interaction: discord.Interaction,
+        message: str = None
+    ):
         channel = interaction.channel
-        sticky_section = storage.section("sticky")
+    
         if message is None:
-            existing = sticky_section.get(str(channel.id))
-            if existing and existing.get("message_id"):
-                try:
-                    old = await channel.fetch_message(int(existing["message_id"]))
-                    await old.delete()
-                except discord.HTTPException:
-                    pass
-            sticky_section.pop(str(channel.id), None)
-            storage.save()
-            await interaction.response.send_message("Sticky message cleared for this channel.", ephemeral=True)
+            storage.set_guild_setting(
+                "sticky",
+                interaction.guild.id,
+                str(channel.id),
+                None
+            )
+    
+            await interaction.response.send_message(
+                "Sticky message removed.",
+                ephemeral=True
+            )
             return
-
-        embed = make_embed("Sticky Message", message)
+    
+        embed = make_embed(
+            "Sticky Message",
+            message
+        )
+    
         sent = await channel.send(embed=embed)
-        sticky_section[str(channel.id)] = {"content": message, "message_id": sent.id}
-        storage.save()
-        await interaction.response.send_message("Sticky message set for this channel.", ephemeral=True)
-
+    
+        storage.set_guild_setting(
+            "sticky",
+            interaction.guild.id,
+            str(channel.id),
+            {
+                "content": message,
+                "message_id": sent.id
+            }
+        )
+    
+        await interaction.response.send_message(
+            "Sticky message set.",
+            ephemeral=True
+        )
+    
+    
     @commands.Cog.listener()
-    async def on_message(self, message: discord.Message):
-        if message.author.bot or message.guild is None:
+    async def on_message(
+        self,
+        message: discord.Message
+    ):
+        if message.author.bot:
             return
-        sticky_section = storage.section("sticky")
-        entry = sticky_section.get(str(message.channel.id))
-        if not entry:
+    
+        if message.guild is None:
             return
+    
+        data = storage.get_guild_setting(
+            "sticky",
+            message.guild.id,
+            str(message.channel.id),
+            None
+        )
+    
+        if not data:
+            return
+    
         try:
-            old = await message.channel.fetch_message(int(entry["message_id"]))
+            old = await message.channel.fetch_message(
+                data["message_id"]
+            )
+    
             await old.delete()
-        except discord.HTTPException:
+    
+        except Exception:
             pass
-        embed = make_embed("Sticky Message", entry["content"])
+    
+        embed = make_embed(
+            "Sticky Message",
+            data["content"]
+        )
+    
         try:
-            sent = await message.channel.send(embed=embed)
-            entry["message_id"] = sent.id
-            storage.save()
-        except discord.HTTPException:
+            new = await message.channel.send(
+                embed=embed
+            )
+    
+            data["message_id"] = new.id
+    
+            storage.set_guild_setting(
+                "sticky",
+                message.guild.id,
+                str(message.channel.id),
+                data
+            )
+    
+        except Exception:
             pass
-
     # --------------------------------------------------------------- pin
     @app_commands.command(name="pin", description="Pins a message.")
     @app_commands.describe(message_id="The ID of the message to pin (defaults to the most recent message)")
