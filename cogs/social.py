@@ -18,6 +18,7 @@ REACTIONS = {
     "wave": ("wave", "waves at"),
     "cuddle": ("cuddle", "cuddles"),
     "dance": ("dance", "dances with"),
+    "punch": ("punch", "punches"),
 }
 
 SELF_MESSAGES = {
@@ -31,6 +32,7 @@ SELF_MESSAGES = {
     "wave": "{author} waves at themselves.",
     "cuddle": "{author} cuddles themselves.",
     "dance": "{author} dances alone.",
+    "punch": "{author} punches themselves.",
 }
 
 
@@ -116,6 +118,10 @@ class Social(commands.Cog):
     async def dance(self, interaction: discord.Interaction, member: discord.Member):
         await self._send_action(interaction, member, "dance")
 
+    @app_commands.command(name="punch", description="Punch another user.")
+    @app_commands.describe(member="The user to punch")
+    async def punch(self, interaction: discord.Interaction, member: discord.Member):
+        await self._send_action(interaction, member, "punch")
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Social(bot))
