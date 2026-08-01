@@ -1,4 +1,5 @@
 discord.py>=2.4.0
 PyNaCl
 davey
+chess
 python-dotenv>=1.0.1
