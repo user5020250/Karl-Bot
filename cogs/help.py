@@ -47,7 +47,7 @@ CATEGORIES = {
         ("/nickname", "Changes nickname.", "Manage Nicknames"),
     ],
     "AutoMod": [
-        ("Automodis out of order due to errors"),
+        ("/automod", "Manage the server's Auto Moderation settings.", "Administrator"),
     ],
     "Server Config": [
         ("/lockdown", "Lock every channel.", "Administrator"),
