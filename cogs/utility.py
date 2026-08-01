@@ -39,16 +39,6 @@ class ReactionRoleView(discord.ui.View):
             )
 
 
-# ============================================================
-# STICKY COMMAND GROUP
-# ============================================================
-
-sticky_group = app_commands.Group(
-    name="sticky",
-    description="Manage sticky messages in this channel."
-)
-
-
 class Utility(commands.Cog):
 
     def __init__(self, bot):
@@ -216,48 +206,45 @@ class Utility(commands.Cog):
     # STICKY
     # --------------------
 
-    @sticky_group.command(
-        name="message",
-        description="Creates a sticky plain text message."
-    )
-    @app_commands.checks.has_permissions(manage_messages=True)
-    async def sticky_message(
-        self,
-        interaction: discord.Interaction,
-        description: str
-    ):
-
-        self.sticky_messages[interaction.channel.id] = {
-            "type": "text",
-            "content": description,
-        }
-
-        await interaction.response.send_message(
-            "Sticky message enabled.",
-            ephemeral=True
-        )
-
-        await interaction.channel.send(description)
-
-    @sticky_group.command(
-        name="embed",
-        description="Creates a sticky embed message."
+    @app_commands.command(
+        name="sticky",
+        description="Creates a sticky message in this channel."
     )
     @app_commands.describe(
+        type="Plain text message or a styled embed.",
         description="The main sticky text (required).",
-        title="Optional embed title.",
-        footer="Optional embed footer text.",
-        image="Optional image to attach to the embed."
+        title="Optional title (embed only).",
+        footer="Optional footer text (embed only).",
+        img="Optional image attachment (embed only)."
     )
+    @app_commands.choices(type=[
+        app_commands.Choice(name="message", value="message"),
+        app_commands.Choice(name="embed", value="embed"),
+    ])
     @app_commands.checks.has_permissions(manage_messages=True)
-    async def sticky_embed(
+    async def sticky(
         self,
         interaction: discord.Interaction,
+        type: app_commands.Choice[str],
         description: str,
         title: str = None,
         footer: str = None,
-        image: discord.Attachment = None
+        img: discord.Attachment = None
     ):
+
+        if type.value == "message":
+            self.sticky_messages[interaction.channel.id] = {
+                "type": "text",
+                "content": description,
+            }
+
+            await interaction.response.send_message(
+                "Sticky message enabled.",
+                ephemeral=True
+            )
+
+            await interaction.channel.send(description)
+            return
 
         embed = discord.Embed(
             description=description,
@@ -270,8 +257,8 @@ class Utility(commands.Cog):
         if footer:
             embed.set_footer(text=footer)
 
-        if image:
-            embed.set_image(url=image.url)
+        if img:
+            embed.set_image(url=img.url)
 
         self.sticky_messages[interaction.channel.id] = {
             "type": "embed",
@@ -370,6 +357,4 @@ class Utility(commands.Cog):
 
 
 async def setup(bot):
-    cog = Utility(bot)
-    await bot.add_cog(cog)
-    bot.tree.add_command(sticky_group)
+    await bot.add_cog(Utility(bot))
