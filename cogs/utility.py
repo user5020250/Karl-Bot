@@ -2,218 +2,311 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from helpers import make_embed
-from storage import storage
 
 BLACK = discord.Color.from_str("#000000")
 
 
+class ReactionRoleView(discord.ui.View):
+    def __init__(self, role: discord.Role):
+        super().__init__(timeout=None)
+        self.role = role
+
+    @discord.ui.button(
+        label="Get Role",
+        style=discord.ButtonStyle.secondary,
+        custom_id="reaction_role_button"
+    )
+    async def role_button(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
+
+        member = interaction.user
+
+        if self.role in member.roles:
+            await member.remove_roles(self.role)
+            await interaction.response.send_message(
+                f"Removed role `{self.role.name}`",
+                ephemeral=True
+            )
+
+        else:
+            await member.add_roles(self.role)
+            await interaction.response.send_message(
+                f"Added role `{self.role.name}`",
+                ephemeral=True
+            )
+
+
 class Utility(commands.Cog):
-    """Utility commands."""
 
-    def __init__(self, bot: commands.Bot):
+    def __init__(self, bot):
         self.bot = bot
+        self.sticky_messages = {}
 
-    # ==========================================================
-    # Helpers
-    # ==========================================================
-
-    async def send_success(
-        self,
-        interaction: discord.Interaction,
-        message: str
-    ):
-        await interaction.response.send_message(
-            embed=make_embed(
-                "Success",
-                message
-            ),
-            ephemeral=True
-        )
-
-    async def send_error(
-        self,
-        interaction: discord.Interaction,
-        message: str
-    ):
-        await interaction.response.send_message(
-            embed=make_embed(
-                "Error",
-                message
-            ),
-            ephemeral=True
-        )
-
-    # ==========================================================
-    # /say
-    # ==========================================================
+    # --------------------
+    # SAY
+    # --------------------
 
     @app_commands.command(
         name="say",
-        description="Send a message as the bot."
+        description="Sends a message as the bot."
     )
-    @app_commands.describe(
-        message="Message to send.",
-        channel="Channel to send it in."
-    )
-    @app_commands.checks.has_permissions(
-        manage_messages=True
-    )
+    @app_commands.checks.has_permissions(manage_messages=True)
     async def say(
         self,
         interaction: discord.Interaction,
-        message: str,
-        channel: discord.TextChannel | None = None
+        message: str
     ):
 
-        channel = channel or interaction.channel
-
-        await channel.send(message)
-
-        await self.send_success(
-            interaction,
-            f"Message sent in {channel.mention}."
+        await interaction.response.send_message(
+            "Message sent.",
+            ephemeral=True
         )
 
-    # ==========================================================
-    # /embed
-    # ==========================================================
+        await interaction.channel.send(message)
+
+
+    # --------------------
+    # EMBED
+    # --------------------
 
     @app_commands.command(
         name="embed",
-        description="Send a custom embed."
+        description="Sends a custom embed."
     )
-    @app_commands.describe(
-        title="Embed title",
-        description="Embed description",
-        channel="Channel"
-    )
-    @app_commands.checks.has_permissions(
-        manage_messages=True
-    )
+    @app_commands.checks.has_permissions(manage_messages=True)
     async def embed(
         self,
         interaction: discord.Interaction,
         title: str,
-        description: str,
-        channel: discord.TextChannel | None = None
+        description: str
     ):
 
-        channel = channel or interaction.channel
-
-        await channel.send(
-            embed=make_embed(
-                title,
-                description
-            )
+        embed = discord.Embed(
+            title=title,
+            description=description,
+            color=BLACK
         )
 
-        await self.send_success(
-            interaction,
-            f"Embed sent in {channel.mention}."
+        await interaction.response.send_message(
+            "Embed sent.",
+            ephemeral=True
         )
 
-    # ==========================================================
-    # /announce
-    # ==========================================================
+        await interaction.channel.send(embed=embed)
+
+
+    # --------------------
+    # ANNOUNCE
+    # --------------------
 
     @app_commands.command(
         name="announce",
-        description="Send an announcement."
+        description="Posts an announcement."
     )
-    @app_commands.describe(
-        message="Announcement text",
-        channel="Target channel",
-        mention_everyone="Mention everyone"
-    )
-    @app_commands.checks.has_permissions(
-        manage_messages=True
-    )
-    @app_commands.checks.bot_has_permissions(
-        mention_everyone=True
-    )
+    @app_commands.checks.has_permissions(manage_messages=True)
     async def announce(
         self,
         interaction: discord.Interaction,
-        message: str,
-        channel: discord.TextChannel | None = None,
-        mention_everyone: bool = False
+        message: str
     ):
 
-        channel = channel or interaction.channel
-
-        await channel.send(
-            content="@everyone" if mention_everyone else None,
-            embed=make_embed(
-                "Announcement",
-                message
-            ),
-            allowed_mentions=discord.AllowedMentions(
-                everyone=mention_everyone
-            )
+        embed = discord.Embed(
+            title="Announcement",
+            description=message,
+            color=BLACK
         )
 
-        await self.send_success(
-            interaction,
-            f"Announcement sent in {channel.mention}."
+        embed.set_footer(
+            text=f"Posted by {interaction.user}"
         )
 
-    # ==========================================================
-    # /poll
-    # ==========================================================
+        await interaction.response.send_message(
+            "Announcement posted.",
+            ephemeral=True
+        )
+
+        await interaction.channel.send(embed=embed)
+
+
+    # --------------------
+    # POLL
+    # --------------------
 
     @app_commands.command(
         name="poll",
-        description="Create a poll."
+        description="Creates a poll."
     )
-    @app_commands.describe(
-        question="Poll question",
-        option1="Option 1",
-        option2="Option 2",
-        option3="Option 3",
-        option4="Option 4"
-    )
-    @app_commands.checks.has_permissions(
-        manage_messages=True
-    )
+    @app_commands.checks.has_permissions(manage_messages=True)
     async def poll(
         self,
         interaction: discord.Interaction,
         question: str,
         option1: str,
-        option2: str,
-        option3: str | None = None,
-        option4: str | None = None
+        option2: str
     ):
 
-        emojis = ["1️⃣", "2️⃣", "3️⃣", "4️⃣"]
-
-        options = [
-            option1,
-            option2
-        ]
-
-        if option3:
-            options.append(option3)
-
-        if option4:
-            options.append(option4)
-
-        description = "\n".join(
-            f"{emojis[i]} {option}"
-            for i, option in enumerate(options)
-        )
-
-        embed = make_embed(
-            question,
-            description
+        embed = discord.Embed(
+            title="Poll",
+            description=(
+                f"**{question}**\n\n"
+                f"1️⃣ {option1}\n"
+                f"2️⃣ {option2}"
+            ),
+            color=BLACK
         )
 
         await interaction.response.send_message(
-            embed=embed
+            "Poll created.",
+            ephemeral=True
         )
 
-        msg = await interaction.original_response()
+        msg = await interaction.channel.send(embed=embed)
 
-        for emoji in emojis[:len(options)]:
-            await msg.add_reaction(emoji)
+        await msg.add_reaction("1️⃣")
+        await msg.add_reaction("2️⃣")
+
+
+    # --------------------
+    # REACTION ROLE
+    # --------------------
+
+    @app_commands.command(
+        name="reactionrole",
+        description="Creates a reaction role button."
+    )
+    @app_commands.checks.has_permissions(manage_roles=True)
+    async def reactionrole(
+        self,
+        interaction: discord.Interaction,
+        role: discord.Role,
+        message: str
+    ):
+
+        embed = discord.Embed(
+            title="Role Selection",
+            description=message,
+            color=BLACK
+        )
+
+        await interaction.response.send_message(
+            "Reaction role created.",
+            ephemeral=True
+        )
+
+        await interaction.channel.send(
+            embed=embed,
+            view=ReactionRoleView(role)
+        )
+
+
+    # --------------------
+    # STICKY
+    # --------------------
+
+    @app_commands.command(
+        name="sticky",
+        description="Creates a sticky message."
+    )
+    @app_commands.checks.has_permissions(manage_messages=True)
+    async def sticky(
+        self,
+        interaction: discord.Interaction,
+        message: str
+    ):
+
+        self.sticky_messages[interaction.channel.id] = message
+
+        await interaction.response.send_message(
+            "Sticky message enabled.",
+            ephemeral=True
+        )
+
+        await interaction.channel.send(message)
+
+
+    @commands.Cog.listener()
+    async def on_message(self, message):
+
+        if message.author.bot:
+            return
+
+        if message.channel.id in self.sticky_messages:
+
+            await message.channel.send(
+                self.sticky_messages[message.channel.id]
+            )
+
+
+    # --------------------
+    # PIN
+    # --------------------
+
+    @app_commands.command(
+        name="pin",
+        description="Pins a message."
+    )
+    @app_commands.checks.has_permissions(manage_messages=True)
+    async def pin(
+        self,
+        interaction: discord.Interaction,
+        message_id: str
+    ):
+
+        try:
+            msg = await interaction.channel.fetch_message(
+                int(message_id)
+            )
+
+            await msg.pin()
+
+            await interaction.response.send_message(
+                "Message pinned.",
+                ephemeral=True
+            )
+
+        except:
+            await interaction.response.send_message(
+                "Invalid message ID.",
+                ephemeral=True
+            )
+
+
+    # --------------------
+    # UNPIN
+    # --------------------
+
+    @app_commands.command(
+        name="unpin",
+        description="Unpins a message."
+    )
+    @app_commands.checks.has_permissions(manage_messages=True)
+    async def unpin(
+        self,
+        interaction: discord.Interaction,
+        message_id: str
+    ):
+
+        try:
+            msg = await interaction.channel.fetch_message(
+                int(message_id)
+            )
+
+            await msg.unpin()
+
+            await interaction.response.send_message(
+                "Message unpinned.",
+                ephemeral=True
+            )
+
+        except:
+            await interaction.response.send_message(
+                "Invalid message ID.",
+                ephemeral=True
+            )
+
+
+async def setup(bot):
+    await bot.add_cog(Utility(bot))
