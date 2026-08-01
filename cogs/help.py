@@ -56,31 +56,6 @@ CATEGORIES = {
     ],
     "AutoMod": [
         ("/automod status", "Shows current AutoMod settings.", "Administrator"),
-
-        ("/automod antispam", "Configure anti-spam protection.", "Administrator"),
-        ("/automod antilink", "Configure link blocking.", "Administrator"),
-        ("/automod antiinvite", "Configure Discord invite blocking.", "Administrator"),
-        ("/automod antimention", "Configure mention limits.", "Administrator"),
-        ("/automod antiraid", "Configure raid protection.", "Administrator"),
-        ("/automod antibot", "Configure unauthorized bot blocking.", "Administrator"),
-        ("/automod antiemoji", "Configure emoji spam protection.", "Administrator"),
-        ("/automod antigif", "Configure GIF blocking.", "Administrator"),
-        ("/automod duplicatefilter", "Configure duplicate message filtering.", "Administrator"),
-        ("/automod capsfilter", "Configure excessive capital letter filtering.", "Administrator"),
-
-        ("/automod profanity enable", "Enable or disable profanity filter.", "Administrator"),
-        ("/automod profanity add", "Add a blocked word.", "Administrator"),
-        ("/automod profanity remove", "Remove a blocked word.", "Administrator"),
-        ("/automod profanity list", "View blocked words.", "Administrator"),
-
-        ("/automod whitelist add", "Whitelist a user or role.", "Administrator"),
-        ("/automod whitelist remove", "Remove a user or role from whitelist.", "Administrator"),
-
-        ("/automod blacklist add", "Blacklist a user or role.", "Administrator"),
-        ("/automod blacklist remove", "Remove a user or role from blacklist.", "Administrator"),
-
-        ("/automod ignore add", "Ignore a channel or role from AutoMod.", "Administrator"),
-        ("/automod ignore remove", "Remove a channel or role from ignored list.", "Administrator"),
     ],
     "Server Config": [
         ("/lockdown", "Lock every channel.", "Administrator"),
