@@ -57,7 +57,7 @@ class Utility(commands.Cog):
         description="The message content (required).",
         title="Optional title (sent as an embed if provided).",
         footer="Optional footer text (sent as an embed if provided).",
-        img="Optional image attachment (sent as an embed if provided)."
+        img="Optional image URL (sent as an embed if provided)."
     )
     @app_commands.checks.has_permissions(manage_messages=True)
     async def say(
@@ -66,7 +66,7 @@ class Utility(commands.Cog):
         description: str,
         title: str = None,
         footer: str = None,
-        img: discord.Attachment = None
+        img: str = None
     ):
 
         await interaction.response.send_message(
@@ -87,7 +87,7 @@ class Utility(commands.Cog):
                 embed.set_footer(text=footer)
 
             if img:
-                embed.set_image(url=img.url)
+                embed.set_image(url=img)
 
             await interaction.channel.send(embed=embed)
         else:
@@ -106,7 +106,7 @@ class Utility(commands.Cog):
         description="The embed description (required).",
         title="Optional title.",
         footer="Optional footer text.",
-        img="Optional image attachment."
+        img="Optional image URL."
     )
     @app_commands.checks.has_permissions(manage_messages=True)
     async def embed(
@@ -115,7 +115,7 @@ class Utility(commands.Cog):
         description: str,
         title: str = None,
         footer: str = None,
-        img: discord.Attachment = None
+        img: str = None
     ):
 
         embed = discord.Embed(
@@ -130,7 +130,7 @@ class Utility(commands.Cog):
             embed.set_footer(text=footer)
 
         if img:
-            embed.set_image(url=img.url)
+            embed.set_image(url=img)
 
         await interaction.response.send_message(
             "Embed sent.",
