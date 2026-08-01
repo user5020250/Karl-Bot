@@ -10,6 +10,10 @@ from helpers import make_embed, send_log
 from storage import storage
 
 
+# ============================================================
+# REGEX
+# ============================================================
+
 INVITE_RE = re.compile(
     r"(discord\.gg/|discord(app)?\.com/invite/)",
     re.IGNORECASE
@@ -31,6 +35,7 @@ GIF_RE = re.compile(
 # ============================================================
 
 def get_settings(guild_id: int):
+
     settings = storage.get_guild_setting(
         "automod",
         guild_id,
@@ -39,6 +44,7 @@ def get_settings(guild_id: int):
 
     if not settings:
         settings = {}
+
         storage.set_guild_setting(
             "automod",
             guild_id,
@@ -48,8 +54,15 @@ def get_settings(guild_id: int):
     return settings
 
 
-def update_setting(guild_id: int, key: str, value):
+
+def update_setting(
+    guild_id: int,
+    key: str,
+    value
+):
+
     settings = get_settings(guild_id)
+
     settings[key] = value
 
     storage.set_guild_setting(
@@ -59,11 +72,13 @@ def update_setting(guild_id: int, key: str, value):
     )
 
 
+
 # ============================================================
 # AUTOMOD COG
 # ============================================================
 
 class AutoMod(commands.Cog):
+
 
     automod_group = app_commands.Group(
         name="automod",
@@ -87,21 +102,21 @@ class AutoMod(commands.Cog):
 
     whitelist_group = app_commands.Group(
         name="whitelist",
-        description="Manage AutoMod whitelist",
+        description="Manage whitelist",
         parent=automod_group
     )
 
 
     blacklist_group = app_commands.Group(
         name="blacklist",
-        description="Manage AutoMod blacklist",
+        description="Manage blacklist",
         parent=automod_group
     )
 
 
     ignore_group = app_commands.Group(
         name="ignore",
-        description="Ignore channels or roles",
+        description="Manage ignored channels/roles",
         parent=automod_group
     )
 
@@ -110,20 +125,25 @@ class AutoMod(commands.Cog):
 
         self.bot = bot
 
+
         self.recent_messages = defaultdict(
             lambda: defaultdict(deque)
         )
 
+
         self.last_message_content = defaultdict(dict)
 
+
         self.recent_joins = defaultdict(deque)
+
 
 
     # ========================================================
     # HELPERS
     # ========================================================
 
-    def is_ignored(
+
+    def _is_ignored(
         self,
         guild_id,
         member,
@@ -135,11 +155,13 @@ class AutoMod(commands.Cog):
             guild_id
         )
 
+
         if channel.id in ignored:
             return True
 
 
         for role in getattr(member, "roles", []):
+
             if role.id in ignored:
                 return True
 
@@ -148,7 +170,7 @@ class AutoMod(commands.Cog):
 
 
 
-    def is_whitelisted(
+    def _is_whitelisted(
         self,
         guild_id,
         member
@@ -178,7 +200,7 @@ class AutoMod(commands.Cog):
 
 
 
-    async def violation(
+    async def _violation(
         self,
         message,
         reason
@@ -200,6 +222,7 @@ class AutoMod(commands.Cog):
             )
         )
 
+
         await send_log(
             message.guild,
             embed
@@ -208,8 +231,9 @@ class AutoMod(commands.Cog):
 
 
     # ========================================================
-    # /automod status
+    # STATUS
     # ========================================================
+
 
     @automod_group.command(
         name="status",
@@ -222,6 +246,7 @@ class AutoMod(commands.Cog):
         self,
         interaction: discord.Interaction
     ):
+
 
         settings = get_settings(
             interaction.guild.id
@@ -243,21 +268,24 @@ class AutoMod(commands.Cog):
             "emoji",
             "gif",
             "caps",
-            "duplicate"
+            "duplicate",
+            "profanity"
         ]
 
 
         for item in filters:
 
-            data = settings.get(
+            cfg = settings.get(
                 item,
                 {}
             )
 
-            enabled = data.get(
+
+            enabled = cfg.get(
                 "enabled",
                 False
             )
+
 
             embed.add_field(
                 name=item,
@@ -274,9 +302,7 @@ class AutoMod(commands.Cog):
         await interaction.response.send_message(
             embed=embed
         )
-
-
-    # ========================================================
+            # ========================================================
     # FILTER COMMANDS
     # ========================================================
 
@@ -285,17 +311,10 @@ class AutoMod(commands.Cog):
         name="spam",
         description="Configure anti spam"
     )
-    @app_commands.describe(
-        enabled="Enable spam protection",
-        limit="Messages allowed",
-        seconds="Time window"
-    )
-    @app_commands.checks.has_permissions(
-        administrator=True
-    )
+    @app_commands.checks.has_permissions(administrator=True)
     async def filter_spam(
         self,
-        interaction,
+        interaction: discord.Interaction,
         enabled: bool,
         limit: int = 5,
         seconds: int = 5
@@ -315,7 +334,7 @@ class AutoMod(commands.Cog):
         await interaction.response.send_message(
             embed=make_embed(
                 "Spam Filter Updated",
-                f"Enabled: {enabled}\nLimit: {limit}\nWindow: {seconds}s"
+                f"Enabled: `{enabled}`\nLimit: `{limit}`\nWindow: `{seconds}s`"
             )
         )
 
@@ -325,12 +344,10 @@ class AutoMod(commands.Cog):
         name="links",
         description="Configure link filter"
     )
-    @app_commands.checks.has_permissions(
-        administrator=True
-    )
+    @app_commands.checks.has_permissions(administrator=True)
     async def filter_links(
         self,
-        interaction,
+        interaction: discord.Interaction,
         enabled: bool
     ):
 
@@ -346,7 +363,7 @@ class AutoMod(commands.Cog):
         await interaction.response.send_message(
             embed=make_embed(
                 "Link Filter Updated",
-                f"Enabled: {enabled}"
+                f"Enabled: `{enabled}`"
             )
         )
 
@@ -356,12 +373,10 @@ class AutoMod(commands.Cog):
         name="invites",
         description="Configure invite filter"
     )
-    @app_commands.checks.has_permissions(
-        administrator=True
-    )
+    @app_commands.checks.has_permissions(administrator=True)
     async def filter_invites(
         self,
-        interaction,
+        interaction: discord.Interaction,
         enabled: bool
     ):
 
@@ -377,28 +392,78 @@ class AutoMod(commands.Cog):
         await interaction.response.send_message(
             embed=make_embed(
                 "Invite Filter Updated",
-                f"Enabled: {enabled}"
+                f"Enabled: `{enabled}`"
             )
         )
 
-    # ========================================================
-    # MORE FILTER COMMANDS
-    # ========================================================
+
+
+    @filter_group.command(
+        name="gif",
+        description="Configure GIF filter"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def filter_gif(
+        self,
+        interaction: discord.Interaction,
+        enabled: bool
+    ):
+
+        update_setting(
+            interaction.guild.id,
+            "gif",
+            {
+                "enabled": enabled
+            }
+        )
+
+
+        await interaction.response.send_message(
+            embed=make_embed(
+                "GIF Filter Updated",
+                f"Enabled: `{enabled}`"
+            )
+        )
+
+
+
+    @filter_group.command(
+        name="duplicate",
+        description="Configure duplicate message filter"
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    async def filter_duplicate(
+        self,
+        interaction: discord.Interaction,
+        enabled: bool
+    ):
+
+        update_setting(
+            interaction.guild.id,
+            "duplicate",
+            {
+                "enabled": enabled
+            }
+        )
+
+
+        await interaction.response.send_message(
+            embed=make_embed(
+                "Duplicate Filter Updated",
+                f"Enabled: `{enabled}`"
+            )
+        )
+
+
 
     @filter_group.command(
         name="mentions",
         description="Configure mention limit"
     )
-    @app_commands.describe(
-        enabled="Enable mention filter",
-        limit="Maximum mentions"
-    )
-    @app_commands.checks.has_permissions(
-        administrator=True
-    )
+    @app_commands.checks.has_permissions(administrator=True)
     async def filter_mentions(
         self,
-        interaction,
+        interaction: discord.Interaction,
         enabled: bool,
         limit: int = 5
     ):
@@ -412,10 +477,11 @@ class AutoMod(commands.Cog):
             }
         )
 
+
         await interaction.response.send_message(
             embed=make_embed(
                 "Mention Filter Updated",
-                f"Enabled: {enabled}\nLimit: {limit}"
+                f"Enabled: `{enabled}`\nLimit: `{limit}`"
             )
         )
 
@@ -425,17 +491,10 @@ class AutoMod(commands.Cog):
         name="raid",
         description="Configure raid protection"
     )
-    @app_commands.describe(
-        enabled="Enable raid protection",
-        joins="Join limit",
-        seconds="Time window"
-    )
-    @app_commands.checks.has_permissions(
-        administrator=True
-    )
+    @app_commands.checks.has_permissions(administrator=True)
     async def filter_raid(
         self,
-        interaction,
+        interaction: discord.Interaction,
         enabled: bool,
         joins: int = 10,
         seconds: int = 30
@@ -451,10 +510,11 @@ class AutoMod(commands.Cog):
             }
         )
 
+
         await interaction.response.send_message(
             embed=make_embed(
                 "Raid Protection Updated",
-                f"Enabled: {enabled}\nJoins: {joins}\nWindow: {seconds}s"
+                f"Enabled: `{enabled}`\nJoins: `{joins}`\nWindow: `{seconds}s`"
             )
         )
 
@@ -464,12 +524,10 @@ class AutoMod(commands.Cog):
         name="bot",
         description="Configure anti bot"
     )
-    @app_commands.checks.has_permissions(
-        administrator=True
-    )
+    @app_commands.checks.has_permissions(administrator=True)
     async def filter_bot(
         self,
-        interaction,
+        interaction: discord.Interaction,
         enabled: bool
     ):
 
@@ -481,10 +539,11 @@ class AutoMod(commands.Cog):
             }
         )
 
+
         await interaction.response.send_message(
             embed=make_embed(
                 "Anti Bot Updated",
-                f"Enabled: {enabled}"
+                f"Enabled: `{enabled}`"
             )
         )
 
@@ -494,16 +553,10 @@ class AutoMod(commands.Cog):
         name="emoji",
         description="Configure emoji filter"
     )
-    @app_commands.describe(
-        enabled="Enable emoji filter",
-        limit="Maximum emojis"
-    )
-    @app_commands.checks.has_permissions(
-        administrator=True
-    )
+    @app_commands.checks.has_permissions(administrator=True)
     async def filter_emoji(
         self,
-        interaction,
+        interaction: discord.Interaction,
         enabled: bool,
         limit: int = 10
     ):
@@ -517,40 +570,11 @@ class AutoMod(commands.Cog):
             }
         )
 
+
         await interaction.response.send_message(
             embed=make_embed(
                 "Emoji Filter Updated",
-                f"Enabled: {enabled}\nLimit: {limit}"
-            )
-        )
-
-
-
-    @filter_group.command(
-        name="gif",
-        description="Configure GIF filter"
-    )
-    @app_commands.checks.has_permissions(
-        administrator=True
-    )
-    async def filter_gif(
-        self,
-        interaction,
-        enabled: bool
-    ):
-
-        update_setting(
-            interaction.guild.id,
-            "gif",
-            {
-                "enabled": enabled
-            }
-        )
-
-        await interaction.response.send_message(
-            embed=make_embed(
-                "GIF Filter Updated",
-                f"Enabled: {enabled}"
+                f"Enabled: `{enabled}`\nLimit: `{limit}`"
             )
         )
 
@@ -560,16 +584,10 @@ class AutoMod(commands.Cog):
         name="caps",
         description="Configure caps filter"
     )
-    @app_commands.describe(
-        enabled="Enable caps filter",
-        percent="Allowed uppercase percentage"
-    )
-    @app_commands.checks.has_permissions(
-        administrator=True
-    )
+    @app_commands.checks.has_permissions(administrator=True)
     async def filter_caps(
         self,
-        interaction,
+        interaction: discord.Interaction,
         enabled: bool,
         percent: int = 70
     ):
@@ -583,47 +601,18 @@ class AutoMod(commands.Cog):
             }
         )
 
+
         await interaction.response.send_message(
             embed=make_embed(
                 "Caps Filter Updated",
-                f"Enabled: {enabled}\nLimit: {percent}%"
-            )
-        )
-
-
-
-    @filter_group.command(
-        name="duplicate",
-        description="Configure duplicate message filter"
-    )
-    @app_commands.checks.has_permissions(
-        administrator=True
-    )
-    async def filter_duplicate(
-        self,
-        interaction,
-        enabled: bool
-    ):
-
-        update_setting(
-            interaction.guild.id,
-            "duplicate",
-            {
-                "enabled": enabled
-            }
-        )
-
-        await interaction.response.send_message(
-            embed=make_embed(
-                "Duplicate Filter Updated",
-                f"Enabled: {enabled}"
+                f"Enabled: `{enabled}`\nLimit: `{percent}%`"
             )
         )
 
 
 
     # ========================================================
-    # PROFANITY GROUP
+    # PROFANITY
     # ========================================================
 
 
@@ -631,18 +620,17 @@ class AutoMod(commands.Cog):
         name="enable",
         description="Enable profanity filter"
     )
-    @app_commands.checks.has_permissions(
-        administrator=True
-    )
+    @app_commands.checks.has_permissions(administrator=True)
     async def profanity_enable(
         self,
-        interaction,
+        interaction: discord.Interaction,
         enabled: bool
     ):
 
         settings = get_settings(
             interaction.guild.id
         )
+
 
         profanity = settings.get(
             "profanity",
@@ -665,8 +653,8 @@ class AutoMod(commands.Cog):
 
         await interaction.response.send_message(
             embed=make_embed(
-                "Profanity Filter Updated",
-                f"Enabled: {enabled}"
+                "Profanity Filter",
+                f"Enabled: `{enabled}`"
             )
         )
 
@@ -676,18 +664,17 @@ class AutoMod(commands.Cog):
         name="add",
         description="Add blocked word"
     )
-    @app_commands.checks.has_permissions(
-        administrator=True
-    )
+    @app_commands.checks.has_permissions(administrator=True)
     async def profanity_add(
         self,
-        interaction,
+        interaction: discord.Interaction,
         word: str
     ):
 
         settings = get_settings(
             interaction.guild.id
         )
+
 
         profanity = settings.get(
             "profanity",
@@ -714,8 +701,8 @@ class AutoMod(commands.Cog):
 
         await interaction.response.send_message(
             embed=make_embed(
-                "Word Added",
-                f"`{word}` added"
+                "Profanity Added",
+                f"Blocked: `{word}`"
             ),
             ephemeral=True
         )
@@ -726,18 +713,17 @@ class AutoMod(commands.Cog):
         name="remove",
         description="Remove blocked word"
     )
-    @app_commands.checks.has_permissions(
-        administrator=True
-    )
+    @app_commands.checks.has_permissions(administrator=True)
     async def profanity_remove(
         self,
-        interaction,
+        interaction: discord.Interaction,
         word: str
     ):
 
         settings = get_settings(
             interaction.guild.id
         )
+
 
         profanity = settings.get(
             "profanity",
@@ -764,8 +750,8 @@ class AutoMod(commands.Cog):
 
         await interaction.response.send_message(
             embed=make_embed(
-                "Word Removed",
-                f"`{word}` removed"
+                "Profanity Removed",
+                f"Removed: `{word}`"
             ),
             ephemeral=True
         )
@@ -776,17 +762,16 @@ class AutoMod(commands.Cog):
         name="list",
         description="List blocked words"
     )
-    @app_commands.checks.has_permissions(
-        administrator=True
-    )
+    @app_commands.checks.has_permissions(administrator=True)
     async def profanity_list(
         self,
-        interaction
+        interaction: discord.Interaction
     ):
 
         settings = get_settings(
             interaction.guild.id
         )
+
 
         words = settings.get(
             "profanity",
@@ -806,185 +791,14 @@ class AutoMod(commands.Cog):
             ),
             ephemeral=True
         )
-
-    # ------------------------------------------------------------
-    # PROFANITY GROUP
-    # ------------------------------------------------------------
-
-    profanity_group = app_commands.Group(
-        name="profanity",
-        description="Manage profanity filter."
-    )
-
-    @profanity_group.command(
-        name="enable",
-        description="Enable or disable profanity filtering."
-    )
-    @app_commands.describe(enabled="Enable profanity filter")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def profanity_enable(
-        self,
-        interaction: discord.Interaction,
-        enabled: bool
-    ):
-        settings = get_settings(interaction.guild.id)
-
-        profanity = settings.get(
-            "profanity",
-            {
-                "enabled": False,
-                "words": []
-            }
-        )
-
-        profanity["enabled"] = enabled
-
-        update_setting(
-            interaction.guild.id,
-            "profanity",
-            profanity
-        )
-
-        await interaction.response.send_message(
-            embed=make_embed(
-                "Profanity Filter",
-                f"Status: {'Enabled' if enabled else 'Disabled'}"
-            )
-        )
-
-
-    @profanity_group.command(
-        name="add",
-        description="Add a blocked word."
-    )
-    @app_commands.describe(word="Word to block")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def profanity_add(
-        self,
-        interaction: discord.Interaction,
-        word: str
-    ):
-        settings = get_settings(interaction.guild.id)
-
-        profanity = settings.get(
-            "profanity",
-            {
-                "enabled": False,
-                "words": []
-            }
-        )
-
-        word = word.lower()
-
-        if word not in profanity["words"]:
-            profanity["words"].append(word)
-
-        update_setting(
-            interaction.guild.id,
-            "profanity",
-            profanity
-        )
-
-        await interaction.response.send_message(
-            embed=make_embed(
-                "Profanity Added",
-                f"Blocked word added: `{word}`"
-            )
-        )
-
-
-    @profanity_group.command(
-        name="remove",
-        description="Remove a blocked word."
-    )
-    @app_commands.describe(word="Word to remove")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def profanity_remove(
-        self,
-        interaction: discord.Interaction,
-        word: str
-    ):
-        settings = get_settings(interaction.guild.id)
-
-        profanity = settings.get(
-            "profanity",
-            {
-                "enabled": False,
-                "words": []
-            }
-        )
-
-        word = word.lower()
-
-        if word in profanity["words"]:
-            profanity["words"].remove(word)
-
-        update_setting(
-            interaction.guild.id,
-            "profanity",
-            profanity
-        )
-
-        await interaction.response.send_message(
-            embed=make_embed(
-                "Profanity Removed",
-                f"Removed: `{word}`"
-            )
-        )
-
-
-    @profanity_group.command(
-        name="list",
-        description="View blocked words."
-    )
-    @app_commands.checks.has_permissions(administrator=True)
-    async def profanity_list(
-        self,
-        interaction: discord.Interaction
-    ):
-        settings = get_settings(interaction.guild.id)
-
-        profanity = settings.get(
-            "profanity",
-            {
-                "enabled": False,
-                "words": []
-            }
-        )
-
-        words = ", ".join(
-            profanity["words"]
-        )
-
-        if not words:
-            words = "No blocked words."
-
-        await interaction.response.send_message(
-            embed=make_embed(
-                "Blocked Words",
-                words
-            ),
-            ephemeral=True
-        )
-
-
-    # ------------------------------------------------------------
-    # WHITELIST GROUP
-    # ------------------------------------------------------------
-
-    whitelist_group = app_commands.Group(
-        name="whitelist",
-        description="Manage AutoMod whitelist."
-    )
+            # ========================================================
+    # WHITELIST
+    # ========================================================
 
 
     @whitelist_group.command(
         name="add",
-        description="Whitelist a user or role."
-    )
-    @app_commands.describe(
-        user="User to whitelist",
-        role="Role to whitelist"
+        description="Whitelist user or role"
     )
     @app_commands.checks.has_permissions(administrator=True)
     async def whitelist_add(
@@ -996,6 +810,7 @@ class AutoMod(commands.Cog):
 
         target = user or role
 
+
         if target is None:
             await interaction.response.send_message(
                 "Provide a user or role.",
@@ -1019,13 +834,10 @@ class AutoMod(commands.Cog):
         )
 
 
+
     @whitelist_group.command(
         name="remove",
-        description="Remove a user or role from whitelist."
-    )
-    @app_commands.describe(
-        user="User to remove",
-        role="Role to remove"
+        description="Remove whitelist user or role"
     )
     @app_commands.checks.has_permissions(administrator=True)
     async def whitelist_remove(
@@ -1037,6 +849,7 @@ class AutoMod(commands.Cog):
 
         target = user or role
 
+
         if target is None:
             await interaction.response.send_message(
                 "Provide a user or role.",
@@ -1060,23 +873,15 @@ class AutoMod(commands.Cog):
         )
 
 
-    # ------------------------------------------------------------
-    # BLACKLIST GROUP
-    # ------------------------------------------------------------
 
-    blacklist_group = app_commands.Group(
-        name="blacklist",
-        description="Manage AutoMod blacklist."
-    )
+    # ========================================================
+    # BLACKLIST
+    # ========================================================
 
 
     @blacklist_group.command(
         name="add",
-        description="Blacklist user or role."
-    )
-    @app_commands.describe(
-        user="User to blacklist",
-        role="Role to blacklist"
+        description="Blacklist user or role"
     )
     @app_commands.checks.has_permissions(administrator=True)
     async def blacklist_add(
@@ -1087,6 +892,7 @@ class AutoMod(commands.Cog):
     ):
 
         target = user or role
+
 
         if target is None:
             await interaction.response.send_message(
@@ -1111,13 +917,10 @@ class AutoMod(commands.Cog):
         )
 
 
+
     @blacklist_group.command(
         name="remove",
-        description="Remove user or role from blacklist."
-    )
-    @app_commands.describe(
-        user="User to remove",
-        role="Role to remove"
+        description="Remove blacklist user or role"
     )
     @app_commands.checks.has_permissions(administrator=True)
     async def blacklist_remove(
@@ -1128,6 +931,7 @@ class AutoMod(commands.Cog):
     ):
 
         target = user or role
+
 
         if target is None:
             await interaction.response.send_message(
@@ -1150,23 +954,17 @@ class AutoMod(commands.Cog):
                 f"Removed {target.mention}"
             )
         )
-            # ------------------------------------------------------------
-    # IGNORE GROUP
-    # ------------------------------------------------------------
 
-    ignore_group = app_commands.Group(
-        name="ignore",
-        description="Ignore channels or roles from AutoMod."
-    )
+
+
+    # ========================================================
+    # IGNORE
+    # ========================================================
 
 
     @ignore_group.command(
         name="add",
-        description="Ignore a channel or role."
-    )
-    @app_commands.describe(
-        channel="Channel to ignore",
-        role="Role to ignore"
+        description="Ignore channel or role"
     )
     @app_commands.checks.has_permissions(administrator=True)
     async def ignore_add(
@@ -1178,9 +976,10 @@ class AutoMod(commands.Cog):
 
         target = channel or role
 
+
         if target is None:
             await interaction.response.send_message(
-                "Provide a channel or role.",
+                "Provide channel or role.",
                 ephemeral=True
             )
             return
@@ -1201,13 +1000,10 @@ class AutoMod(commands.Cog):
         )
 
 
+
     @ignore_group.command(
         name="remove",
-        description="Remove ignored channel or role."
-    )
-    @app_commands.describe(
-        channel="Channel to remove",
-        role="Role to remove"
+        description="Remove ignored channel or role"
     )
     @app_commands.checks.has_permissions(administrator=True)
     async def ignore_remove(
@@ -1219,9 +1015,10 @@ class AutoMod(commands.Cog):
 
         target = channel or role
 
+
         if target is None:
             await interaction.response.send_message(
-                "Provide a channel or role.",
+                "Provide channel or role.",
                 ephemeral=True
             )
             return
@@ -1242,9 +1039,11 @@ class AutoMod(commands.Cog):
         )
 
 
-    # ------------------------------------------------------------
-    # MESSAGE FILTER LISTENER
-    # ------------------------------------------------------------
+
+    # ========================================================
+    # MESSAGE FILTER
+    # ========================================================
+
 
     @commands.Cog.listener()
     async def on_message(
@@ -1275,23 +1074,20 @@ class AutoMod(commands.Cog):
             return
 
 
+
         settings = get_settings(
             message.guild.id
         )
 
 
-        # ---------------- LINK FILTER
 
-        cfg = settings.get(
-            "antilink",
-            {}
-        )
+        # LINKS
+
+        cfg = settings.get("links", {})
 
         if cfg.get("enabled"):
 
-            if LINK_RE.search(
-                message.content
-            ):
+            if LINK_RE.search(message.content):
 
                 await self._violation(
                     message,
@@ -1301,18 +1097,13 @@ class AutoMod(commands.Cog):
 
 
 
-        # ---------------- INVITE FILTER
+        # INVITES
 
-        cfg = settings.get(
-            "antiinvite",
-            {}
-        )
+        cfg = settings.get("invites", {})
 
         if cfg.get("enabled"):
 
-            if INVITE_RE.search(
-                message.content
-            ):
+            if INVITE_RE.search(message.content):
 
                 await self._violation(
                     message,
@@ -1322,18 +1113,13 @@ class AutoMod(commands.Cog):
 
 
 
-        # ---------------- GIF FILTER
+        # GIF
 
-        cfg = settings.get(
-            "antigif",
-            {}
-        )
+        cfg = settings.get("gif", {})
 
         if cfg.get("enabled"):
 
-            if GIF_RE.search(
-                message.content
-            ):
+            if GIF_RE.search(message.content):
 
                 await self._violation(
                     message,
@@ -1343,19 +1129,42 @@ class AutoMod(commands.Cog):
 
 
 
-        # ---------------- DUPLICATE FILTER
+        # PROFANITY
 
         cfg = settings.get(
-            "duplicatefilter",
+            "profanity",
             {}
         )
 
         if cfg.get("enabled"):
 
-            previous = (
-                self.last_message_content
-                [message.guild.id]
-                .get(message.author.id)
+            content = message.content.lower()
+
+            for word in cfg.get("words", []):
+
+                if word in content:
+
+                    await self._violation(
+                        message,
+                        "Profanity detected."
+                    )
+                    return
+
+
+
+        # DUPLICATE
+
+        cfg = settings.get(
+            "duplicate",
+            {}
+        )
+
+        if cfg.get("enabled"):
+
+            previous = self.last_message_content[
+                message.guild.id
+            ].get(
+                message.author.id
             )
 
 
@@ -1366,10 +1175,7 @@ class AutoMod(commands.Cog):
             ] = message.content
 
 
-            if (
-                previous
-                and previous == message.content
-            ):
+            if previous == message.content:
 
                 await self._violation(
                     message,
@@ -1379,10 +1185,10 @@ class AutoMod(commands.Cog):
 
 
 
-        # ---------------- SPAM FILTER
+        # SPAM
 
         cfg = settings.get(
-            "antispam",
+            "spam",
             {}
         )
 
@@ -1391,28 +1197,29 @@ class AutoMod(commands.Cog):
 
             now = time.time()
 
-            timestamps = (
-                self.recent_messages
-                [message.guild.id]
-                [message.author.id]
-            )
+
+            messages = self.recent_messages[
+                message.guild.id
+            ][
+                message.author.id
+            ]
 
 
-            timestamps.append(now)
+            messages.append(now)
 
 
             while (
-                timestamps
-                and now - timestamps[0] > cfg.get(
+                messages
+                and now - messages[0] > cfg.get(
                     "seconds",
                     5
                 )
             ):
+                messages.popleft()
 
-                timestamps.popleft()
 
 
-            if len(timestamps) > cfg.get(
+            if len(messages) > cfg.get(
                 "limit",
                 5
             ):
@@ -1421,13 +1228,13 @@ class AutoMod(commands.Cog):
                     message,
                     "Spam detected."
                 )
-                return
 
 
 
-    # ------------------------------------------------------------
-    # RAID / BOT JOIN PROTECTION
-    # ------------------------------------------------------------
+    # ========================================================
+    # MEMBER JOIN PROTECTION
+    # ========================================================
+
 
     @commands.Cog.listener()
     async def on_member_join(
@@ -1437,15 +1244,14 @@ class AutoMod(commands.Cog):
 
         guild = member.guild
 
+
         settings = get_settings(
             guild.id
         )
 
 
-        # Anti bot
-
         cfg = settings.get(
-            "antibot",
+            "bot",
             {}
         )
 
@@ -1465,23 +1271,14 @@ class AutoMod(commands.Cog):
                     reason="Unauthorized bot"
                 )
 
-                await send_log(
-                    guild,
-                    make_embed(
-                        "Anti Bot",
-                        f"Kicked {member}"
-                    )
-                )
 
             except discord.HTTPException:
                 pass
 
 
 
-        # Anti raid
-
         cfg = settings.get(
-            "antiraid",
+            "raid",
             {}
         )
 
@@ -1501,8 +1298,7 @@ class AutoMod(commands.Cog):
 
             while (
                 joins
-                and now - joins[0]
-                > cfg.get(
+                and now - joins[0] > cfg.get(
                     "seconds",
                     30
                 )
@@ -1512,7 +1308,7 @@ class AutoMod(commands.Cog):
 
 
             if len(joins) >= cfg.get(
-                "join_limit",
+                "joins",
                 10
             ):
 
@@ -1526,9 +1322,15 @@ class AutoMod(commands.Cog):
 
 
 
-# ------------------------------------------------------------
+# ============================================================
 # SETUP
-# ------------------------------------------------------------
+# ============================================================
 
-async def setup(bot: commands.Bot):
-    await bot.add_cog(AutoMod(bot))
+
+async def setup(
+    bot: commands.Bot
+):
+
+    await bot.add_cog(
+        AutoMod(bot)
+    )
