@@ -12,6 +12,83 @@ class Jail(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
+    @app_commands.command(name="createjail", description="Creates a jail role + channel with the correct permissions, and configures jail.")
+    @app_commands.describe(
+        role_name="Name for the new jail role (default: 'Jailed')",
+        channel_name="Name for the new jail channel (default: 'jail')",
+        category="Optional category to place the jail channel in",
+    )
+    @app_commands.checks.has_permissions(administrator=True)
+    @app_commands.checks.bot_has_permissions(manage_roles=True, manage_channels=True)
+    async def createjail(
+        self,
+        interaction: discord.Interaction,
+        role_name: str = "Jailed",
+        channel_name: str = "jail",
+        category: discord.CategoryChannel = None,
+    ):
+        guild = interaction.guild
+        await interaction.response.defer()
+
+        # 1. Create the jail role with no permissions.
+        jail_role = await guild.create_role(
+            name=role_name,
+            permissions=discord.Permissions.none(),
+            color=discord.Color.dark_grey(),
+            reason=f"Jail setup requested by {interaction.user}",
+        )
+
+        # Discord places new roles just above @everyone, so it will naturally
+        # sit below the bot's top role in virtually all cases. Guard anyway.
+        if jail_role >= guild.me.top_role:
+            await jail_role.delete(reason="Jail setup aborted: role ended up above bot's top role")
+            await interaction.followup.send(
+                "Could not finish setup: the new jail role ended up higher than or equal to my top role. "
+                "Move my role higher and try again.",
+                ephemeral=True,
+            )
+            return
+
+        # 2. Deny the jail role visibility on every existing channel.
+        for channel in guild.channels:
+            try:
+                overwrite = channel.overwrites_for(jail_role)
+                overwrite.view_channel = False
+                await channel.set_permissions(jail_role, overwrite=overwrite, reason="Jail setup: hide existing channels from jailed members")
+            except discord.Forbidden:
+                # Skip channels the bot can't manage rather than failing the whole setup.
+                continue
+
+        # 3. Create the jail channel, visible only to the jail role (and staff who bypass via other roles/permissions).
+        everyone_overwrite = discord.PermissionOverwrite(view_channel=False)
+        jail_overwrite = discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True)
+
+        jail_channel = await guild.create_text_channel(
+            name=channel_name,
+            category=category,
+            overwrites={
+                guild.default_role: everyone_overwrite,
+                jail_role: jail_overwrite,
+                guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True, manage_channels=True),
+            },
+            reason=f"Jail setup requested by {interaction.user}",
+        )
+
+        # 4. Persist the config, same shape /setjail uses.
+        storage.set_guild_setting(
+            "jail",
+            guild.id,
+            {"role_id": jail_role.id, "channel_id": jail_channel.id, "members": {}},
+        )
+
+        embed = make_embed(
+            "Jail Set Up",
+            f"Role: {jail_role.mention}\nChannel: {jail_channel.mention}\n\n"
+            f"The jail role has been hidden from all existing channels and can only see {jail_channel.mention}.",
+        )
+        await interaction.followup.send(embed=embed)
+        await send_log(guild, embed)
+
     @app_commands.command(name="setjail", description="Configure the jail role and channel.")
     @app_commands.describe(role="The restricted role given to jailed members", channel="The channel jailed members can see")
     @app_commands.checks.has_permissions(administrator=True)
