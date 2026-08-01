@@ -427,27 +427,38 @@ class AutoModPanelView(discord.ui.View):
 
 
 # ============================================================
-# STANDALONE GROUPS (list management, unrelated to toggles)
+# GROUPS
 # ============================================================
+# Everything lives under /automod: the dashboard is "/automod panel",
+# and list management is nested as subgroups underneath it.
+
+automod_group = app_commands.Group(
+    name="automod",
+    description="Configure AutoMod"
+)
 
 profanity_group = app_commands.Group(
     name="profanity",
-    description="Manage profanity filter words"
+    description="Manage profanity filter words",
+    parent=automod_group
 )
 
 whitelist_group = app_commands.Group(
     name="whitelist",
-    description="Manage AutoMod whitelist"
+    description="Manage AutoMod whitelist",
+    parent=automod_group
 )
 
 blacklist_group = app_commands.Group(
     name="blacklist",
-    description="Manage AutoMod blacklist"
+    description="Manage AutoMod blacklist",
+    parent=automod_group
 )
 
 ignore_group = app_commands.Group(
     name="ignore",
-    description="Manage ignored channels/roles"
+    description="Manage ignored channels/roles",
+    parent=automod_group
 )
 
 
@@ -585,14 +596,14 @@ class AutoMod(commands.Cog):
     # ========================================================
 
 
-    @app_commands.command(
-        name="automod",
+    @automod_group.command(
+        name="panel",
         description="Open the AutoMod configuration panel"
     )
     @app_commands.checks.has_permissions(
         administrator=True
     )
-    async def automod(
+    async def automod_panel(
         self,
         interaction: discord.Interaction
     ):
@@ -1290,7 +1301,4 @@ async def setup(
 
     await bot.add_cog(cog)
 
-    bot.tree.add_command(profanity_group)
-    bot.tree.add_command(whitelist_group)
-    bot.tree.add_command(blacklist_group)
-    bot.tree.add_command(ignore_group)
+    bot.tree.add_command(automod_group)
