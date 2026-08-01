@@ -1530,29 +1530,5 @@ class AutoMod(commands.Cog):
 # SETUP
 # ------------------------------------------------------------
 
-async def setup(
-    bot: commands.Bot
-):
-
-    cog = AutoMod(bot)
-
-    await bot.add_cog(
-        cog
-    )
-
-    # Register groups
-    bot.tree.add_command(
-        cog.profanity_group
-    )
-
-    bot.tree.add_command(
-        cog.whitelist_group
-    )
-
-    bot.tree.add_command(
-        cog.blacklist_group
-    )
-
-    bot.tree.add_command(
-        cog.ignore_group
-    )
+async def setup(bot: commands.Bot):
+    await bot.add_cog(AutoMod(bot))
