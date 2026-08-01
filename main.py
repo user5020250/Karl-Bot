@@ -33,6 +33,7 @@ EXTENSIONS = [
     "cogs.afk",
     "cogs.jail",
     "cogs.help",
+    "cogs.social",
 ]
 
 
