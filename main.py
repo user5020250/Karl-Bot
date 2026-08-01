@@ -24,6 +24,7 @@ EXTENSIONS = [
     "cogs.channels",
     "cogs.voice",
     "cogs.roles",
+    "cogs.automod",
     "cogs.server",
     "cogs.modlogs",
     "cogs.utility",
