@@ -53,11 +53,20 @@ class Utility(commands.Cog):
         name="say",
         description="Sends a message as the bot."
     )
+    @app_commands.describe(
+        description="The message content (required).",
+        title="Optional title (sent as an embed if provided).",
+        footer="Optional footer text (sent as an embed if provided).",
+        img="Optional image attachment (sent as an embed if provided)."
+    )
     @app_commands.checks.has_permissions(manage_messages=True)
     async def say(
         self,
         interaction: discord.Interaction,
-        message: str
+        description: str,
+        title: str = None,
+        footer: str = None,
+        img: discord.Attachment = None
     ):
 
         await interaction.response.send_message(
@@ -65,7 +74,24 @@ class Utility(commands.Cog):
             ephemeral=True
         )
 
-        await interaction.channel.send(message)
+        if title or footer or img:
+            embed = discord.Embed(
+                description=description,
+                color=BLACK
+            )
+
+            if title:
+                embed.title = title
+
+            if footer:
+                embed.set_footer(text=footer)
+
+            if img:
+                embed.set_image(url=img.url)
+
+            await interaction.channel.send(embed=embed)
+        else:
+            await interaction.channel.send(description)
 
 
     # --------------------
@@ -76,19 +102,35 @@ class Utility(commands.Cog):
         name="embed",
         description="Sends a custom embed."
     )
+    @app_commands.describe(
+        description="The embed description (required).",
+        title="Optional title.",
+        footer="Optional footer text.",
+        img="Optional image attachment."
+    )
     @app_commands.checks.has_permissions(manage_messages=True)
     async def embed(
         self,
         interaction: discord.Interaction,
-        title: str,
-        description: str
+        description: str,
+        title: str = None,
+        footer: str = None,
+        img: discord.Attachment = None
     ):
 
         embed = discord.Embed(
-            title=title,
             description=description,
             color=BLACK
         )
+
+        if title:
+            embed.title = title
+
+        if footer:
+            embed.set_footer(text=footer)
+
+        if img:
+            embed.set_image(url=img.url)
 
         await interaction.response.send_message(
             "Embed sent.",
