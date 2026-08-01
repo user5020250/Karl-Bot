@@ -419,7 +419,7 @@ class AutoModPanelView(discord.ui.View):
         self.cog = cog
         self.guild_id = guild_id
 
-        for key, label in TOGGLE_FILTERS.items():
+        for key, label in ALL_FILTERS.items():
             self.add_item(ToggleButton(cog, guild_id, key, label))
 
         self.add_item(ConfigureSelect(cog, guild_id))
