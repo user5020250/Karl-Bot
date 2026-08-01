@@ -148,22 +148,49 @@ class Utility(commands.Cog):
         name="announce",
         description="Posts an announcement."
     )
+    @app_commands.describe(
+        type="Plain text message or a styled embed.",
+        description="The announcement content (required).",
+        title="Optional title (embed only).",
+        footer="Optional footer text (embed only).",
+        img="Optional image URL (embed only)."
+    )
+    @app_commands.choices(type=[
+        app_commands.Choice(name="message", value="message"),
+        app_commands.Choice(name="embed", value="embed"),
+    ])
     @app_commands.checks.has_permissions(manage_messages=True)
     async def announce(
         self,
         interaction: discord.Interaction,
-        message: str
+        type: app_commands.Choice[str],
+        description: str,
+        title: str = None,
+        footer: str = None,
+        img: str = None
     ):
 
+        if type.value == "message":
+            await interaction.response.send_message(
+                "Announcement posted.",
+                ephemeral=True
+            )
+
+            await interaction.channel.send(description)
+            return
+
         embed = discord.Embed(
-            title="Announcement",
-            description=message,
+            title=title if title else "Announcement",
+            description=description,
             color=BLACK
         )
 
         embed.set_footer(
-            text=f"Posted by {interaction.user}"
+            text=footer if footer else f"Posted by {interaction.user}"
         )
+
+        if img:
+            embed.set_image(url=img)
 
         await interaction.response.send_message(
             "Announcement posted.",
@@ -257,7 +284,7 @@ class Utility(commands.Cog):
         description="The main sticky text (required).",
         title="Optional title (embed only).",
         footer="Optional footer text (embed only).",
-        img="Optional image attachment (embed only)."
+        img="Optional image URL (embed only)."
     )
     @app_commands.choices(type=[
         app_commands.Choice(name="message", value="message"),
@@ -271,7 +298,7 @@ class Utility(commands.Cog):
         description: str,
         title: str = None,
         footer: str = None,
-        img: discord.Attachment = None
+        img: str = None
     ):
 
         if type.value == "message":
@@ -300,7 +327,7 @@ class Utility(commands.Cog):
             embed.set_footer(text=footer)
 
         if img:
-            embed.set_image(url=img.url)
+            embed.set_image(url=img)
 
         self.sticky_messages[interaction.channel.id] = {
             "type": "embed",
