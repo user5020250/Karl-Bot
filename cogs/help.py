@@ -47,16 +47,7 @@ CATEGORIES = {
         ("/nickname", "Changes nickname.", "Manage Nicknames"),
     ],
     "AutoMod": [
-        ("/automod panel", "Opens the AutoMod panel to toggle and configure filters.", "Administrator"),
-        ("/automod profanity add", "Add a word to the profanity filter.", "Administrator"),
-        ("/automod profanity remove", "Remove a word from the profanity filter.", "Administrator"),
-        ("/automod profanity list", "List all blocked words.", "Administrator"),
-        ("/automod whitelist add", "Whitelist a user or role from AutoMod.", "Administrator"),
-        ("/automod whitelist remove", "Remove a user or role from the whitelist.", "Administrator"),
-        ("/automod blacklist add", "Blacklist a user or role.", "Administrator"),
-        ("/automod blacklist remove", "Remove a user or role from the blacklist.", "Administrator"),
-        ("/automod ignore add", "Ignore a channel or role for AutoMod.", "Administrator"),
-        ("/automod ignore remove", "Remove a channel or role from the ignore list.", "Administrator"),
+        ("Automodis out of order due to errors"),
     ],
     "Server Config": [
         ("/lockdown", "Lock every channel.", "Administrator"),
