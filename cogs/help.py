@@ -74,7 +74,6 @@ CATEGORIES = {
     "Server Config": [
         ("/lockdown", "Lock every channel.", "Administrator"),
         ("/unlockdown", "End lockdown.", "Administrator"),
-        ("/panic", "Panic mode (one-click server lockdown).", "Administrator"),
         ("/maintenance", "Toggle maintenance mode.", "Administrator"),
         ("/verify", "Verify a member.", "Manage Roles"),
         ("/unverify", "Remove verification.", "Manage Roles"),
