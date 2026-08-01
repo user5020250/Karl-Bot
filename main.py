@@ -12,7 +12,6 @@ log = logging.getLogger("bot")
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 PREFIX = os.getenv("BOT_PREFIX", "!")
-GUILD_ID = os.getenv("GUILD_ID")
 
 intents = discord.Intents.default()
 intents.members = True
@@ -52,12 +51,6 @@ class ModBot(commands.Bot):
 
         synced = await self.tree.sync()
         log.info("Synced %d application commands", len(synced))
-
-        if GUILD_ID:
-            guild = discord.Object(id=int(GUILD_ID))
-            self.tree.copy_global_to(guild=guild)
-            guild_synced = await self.tree.sync(guild=guild)
-            log.info("Synced %d application commands to guild %s", len(guild_synced), GUILD_ID)
 
     async def on_ready(self):
         log.info("Logged in as %s (%s)", self.user, self.user.id)
