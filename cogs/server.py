@@ -15,8 +15,42 @@ class Server(commands.Cog):
         self.bot = bot
 
     # ---------------------------------------------------------------------
-    # Lockdown / Panic
+    # Lockdown
     # ---------------------------------------------------------------------
+    def _lockable_channels(self, guild: discord.Guild):
+        """Every channel type that actually has a send/post permission to lock."""
+        return [
+            c for c in guild.channels
+            if isinstance(c, (discord.TextChannel, discord.VoiceChannel, discord.StageChannel, discord.ForumChannel))
+        ]
+
+    async def _set_channel_lock(self, channel: discord.abc.GuildChannel, locked: bool, reason: str):
+        overwrite = channel.overwrites_for(channel.guild.default_role)
+        value = False if locked else None
+        if isinstance(channel, discord.ForumChannel):
+            overwrite.create_forum_threads = value
+            overwrite.send_messages_in_threads = value
+        else:
+            overwrite.send_messages = value
+        await channel.set_permissions(channel.guild.default_role, overwrite=overwrite, reason=reason)
+
+    async def _lock_all_channels(self, guild: discord.Guild, reason: str) -> discord.Embed:
+        locked = 0
+        failed = []
+        for channel in self._lockable_channels(guild):
+            try:
+                await self._set_channel_lock(channel, locked=True, reason=reason)
+                locked += 1
+            except discord.Forbidden:
+                failed.append(channel.mention)
+            except discord.HTTPException:
+                failed.append(channel.mention)
+        description = f"Locked {locked} channel(s).\nReason: {reason}"
+        if failed:
+            shown = ", ".join(failed[:10]) + (f" (+{len(failed) - 10} more)" if len(failed) > 10 else "")
+            description += f"\n\nCould not lock {len(failed)} channel(s) (missing permission overwrite there): {shown}"
+        return make_embed("Server Lockdown", description)
+
     @app_commands.command(name="lockdown", description="Lock every channel.")
     @app_commands.describe(reason="Reason for the lockdown")
     @app_commands.checks.has_permissions(administrator=True)
@@ -34,41 +68,18 @@ class Server(commands.Cog):
         await interaction.response.defer()
         guild = interaction.guild
         unlocked = 0
-        for channel in guild.text_channels:
+        failed = []
+        for channel in self._lockable_channels(guild):
             try:
-                overwrite = channel.overwrites_for(guild.default_role)
-                overwrite.send_messages = None
-                await channel.set_permissions(guild.default_role, overwrite=overwrite, reason="Lockdown lifted")
+                await self._set_channel_lock(channel, locked=False, reason="Lockdown lifted")
                 unlocked += 1
-            except discord.HTTPException:
-                continue
-        storage.set_guild_setting("panic", guild.id, False)
-        embed = make_embed("Lockdown Lifted", f"Unlocked {unlocked} channel(s).")
-        await interaction.followup.send(embed=embed)
-        await send_log(guild, embed)
-
-    async def _lock_all_channels(self, guild: discord.Guild, reason: str) -> discord.Embed:
-        locked = 0
-        for channel in guild.text_channels:
-            try:
-                overwrite = channel.overwrites_for(guild.default_role)
-                overwrite.send_messages = False
-                await channel.set_permissions(guild.default_role, overwrite=overwrite, reason=reason)
-                locked += 1
-            except discord.HTTPException:
-                continue
-        return make_embed("Server Lockdown", f"Locked {locked} channel(s).\nReason: {reason}")
-
-    @app_commands.command(name="panic", description="Panic mode (one-click server lockdown).")
-    @app_commands.checks.has_permissions(administrator=True)
-    @app_commands.checks.bot_has_permissions(manage_channels=True)
-    async def panic(self, interaction: discord.Interaction):
-        await interaction.response.defer()
-        guild = interaction.guild
-        storage.set_guild_setting("panic", guild.id, True)
-        embed = await self._lock_all_channels(guild, f"Panic mode activated by {interaction.user}")
-        embed.title = "Panic Mode Activated"
-        embed.description += "\n\nUse /unlockdown to lift the lock once the situation is resolved."
+            except (discord.Forbidden, discord.HTTPException):
+                failed.append(channel.mention)
+        description = f"Unlocked {unlocked} channel(s)."
+        if failed:
+            shown = ", ".join(failed[:10]) + (f" (+{len(failed) - 10} more)" if len(failed) > 10 else "")
+            description += f"\n\nCould not unlock {len(failed)} channel(s): {shown}"
+        embed = make_embed("Lockdown Lifted", description)
         await interaction.followup.send(embed=embed)
         await send_log(guild, embed)
 
