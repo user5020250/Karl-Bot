@@ -1,7 +1,5 @@
 import asyncio
-import operator
 import random
-import time
 
 import discord
 from discord import app_commands
