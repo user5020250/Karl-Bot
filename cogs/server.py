@@ -8,8 +8,54 @@ from storage import storage
 BLACK = discord.Color.from_str("#000000")
 
 
+# ============================================================
+# GREETING HELPERS (shared by welcome + goodbye)
+# ============================================================
+
+def _fill_placeholders(text: str, member: discord.Member, guild: discord.Guild, mention: bool) -> str:
+
+    who = member.mention if mention else str(member)
+
+    return (
+        text
+        .replace("{member}", who)
+        .replace("{user}", who)
+        .replace("{server}", guild.name)
+    )
+
+
+def _build_greet_payload(cfg: dict, member: discord.Member, guild: discord.Guild, mention: bool) -> dict:
+    """Turns a welcome/goodbye config into kwargs for channel.send()."""
+
+    mode = cfg.get("mode", "message")
+
+    if mode == "embed":
+
+        edata = cfg.get("embed", {}) or {}
+
+        embed = discord.Embed(color=BLACK)
+
+        if edata.get("title"):
+            embed.title = _fill_placeholders(edata["title"], member, guild, mention)
+
+        if edata.get("description"):
+            embed.description = _fill_placeholders(edata["description"], member, guild, mention)
+
+        if edata.get("footer"):
+            embed.set_footer(text=_fill_placeholders(edata["footer"], member, guild, mention))
+
+        if edata.get("image"):
+            embed.set_image(url=edata["image"])
+
+        return {"embed": embed}
+
+    message = cfg.get("message", "Welcome {member} to {server}!")
+
+    return {"content": _fill_placeholders(message, member, guild, mention)}
+
+
 class Server(commands.Cog):
-    """Server-wide configuration: lockdown, maintenance, verification, autorole, welcome/goodbye, logs."""
+    """Server-wide configuration: lockdown, autorole, welcome/goodbye, logs."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -84,68 +130,6 @@ class Server(commands.Cog):
         await send_log(guild, embed)
 
     # ---------------------------------------------------------------------
-    # Maintenance
-    # ---------------------------------------------------------------------
-    @app_commands.command(name="maintenance", description="Toggle maintenance mode.")
-    @app_commands.describe(enabled="Turn maintenance mode on or off")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def maintenance(self, interaction: discord.Interaction, enabled: bool):
-        storage.set_guild_setting("maintenance", interaction.guild.id, enabled)
-        embed = make_embed(
-            "Maintenance Mode",
-            f"Maintenance mode is now {'enabled' if enabled else 'disabled'}. "
-            + ("Only administrators can use commands while enabled." if enabled else "All commands are available again."),
-        )
-        await interaction.response.send_message(embed=embed)
-
-    # ---------------------------------------------------------------------
-    # Verification
-    # ---------------------------------------------------------------------
-    @app_commands.command(name="verify", description="Verify a member.")
-    @app_commands.describe(member="The member to verify")
-    @app_commands.checks.has_permissions(manage_roles=True)
-    @app_commands.checks.bot_has_permissions(manage_roles=True)
-    async def verify(self, interaction: discord.Interaction, member: discord.Member):
-        config = storage.get_guild_setting("verify", interaction.guild.id)
-        if not config or not config.get("role_id"):
-            await interaction.response.send_message("No verification role is configured. Set one up with /setverifyrole.", ephemeral=True)
-            return
-        role = interaction.guild.get_role(int(config["role_id"]))
-        if role is None:
-            await interaction.response.send_message("The configured verification role no longer exists.", ephemeral=True)
-            return
-        await member.add_roles(role, reason=f"Verified by {interaction.user}")
-        embed = make_embed("Member Verified", f"{member.mention} has been verified.")
-        await interaction.response.send_message(embed=embed)
-        await send_log(interaction.guild, embed)
-
-    @app_commands.command(name="unverify", description="Remove verification.")
-    @app_commands.describe(member="The member to unverify")
-    @app_commands.checks.has_permissions(manage_roles=True)
-    @app_commands.checks.bot_has_permissions(manage_roles=True)
-    async def unverify(self, interaction: discord.Interaction, member: discord.Member):
-        config = storage.get_guild_setting("verify", interaction.guild.id)
-        if not config or not config.get("role_id"):
-            await interaction.response.send_message("No verification role is configured.", ephemeral=True)
-            return
-        role = interaction.guild.get_role(int(config["role_id"]))
-        if role is None:
-            await interaction.response.send_message("The configured verification role no longer exists.", ephemeral=True)
-            return
-        await member.remove_roles(role, reason=f"Unverified by {interaction.user}")
-        embed = make_embed("Verification Removed", f"{member.mention} is no longer verified.")
-        await interaction.response.send_message(embed=embed)
-        await send_log(interaction.guild, embed)
-
-    @app_commands.command(name="setverifyrole", description="Set the role given to verified members.")
-    @app_commands.describe(role="The verification role")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def setverifyrole(self, interaction: discord.Interaction, role: discord.Role):
-        storage.set_guild_setting("verify", interaction.guild.id, {"role_id": role.id})
-        embed = make_embed("Verification Role Set", f"{role.mention} will now be given by /verify.")
-        await interaction.response.send_message(embed=embed)
-
-    # ---------------------------------------------------------------------
     # Autorole
     # ---------------------------------------------------------------------
     autorole_group = app_commands.Group(name="autorole", description="Configure automatic roles given to new members.")
@@ -175,6 +159,9 @@ class Server(commands.Cog):
         embed = make_embed("Autoroles", ", ".join(r.mention for r in roles) if roles else "No autoroles configured.")
         await interaction.response.send_message(embed=embed)
 
+    # ---------------------------------------------------------------------
+    # Join / leave listeners: autorole + welcome/goodbye
+    # ---------------------------------------------------------------------
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member):
         role_ids = storage.get_list("autorole", member.guild.id)
@@ -190,17 +177,9 @@ class Server(commands.Cog):
         if welcome_cfg and welcome_cfg.get("channel_id"):
             channel = member.guild.get_channel(int(welcome_cfg["channel_id"]))
             if channel is not None:
-                message = welcome_cfg.get("message", "Welcome {member} to {server}!")
-                message = (
-                    message.replace("{member}", member.mention)
-                    .replace("{user}", member.mention)
-                    .replace("{server}", member.guild.name)
-                )
+                payload = _build_greet_payload(welcome_cfg, member, member.guild, mention=True)
                 try:
-                    if welcome_cfg.get("embed"):
-                        await channel.send(embed=discord.Embed(description=message, color=BLACK))
-                    else:
-                        await channel.send(message)
+                    await channel.send(**payload)
                 except discord.HTTPException:
                     pass
 
@@ -210,17 +189,9 @@ class Server(commands.Cog):
         if goodbye_cfg and goodbye_cfg.get("channel_id"):
             channel = member.guild.get_channel(int(goodbye_cfg["channel_id"]))
             if channel is not None:
-                message = goodbye_cfg.get("message", "{member} has left {server}.")
-                message = (
-                    message.replace("{member}", str(member))
-                    .replace("{user}", str(member))
-                    .replace("{server}", member.guild.name)
-                )
+                payload = _build_greet_payload(goodbye_cfg, member, member.guild, mention=False)
                 try:
-                    if goodbye_cfg.get("embed"):
-                        await channel.send(embed=discord.Embed(description=message, color=BLACK))
-                    else:
-                        await channel.send(message)
+                    await channel.send(**payload)
                 except discord.HTTPException:
                     pass
 
@@ -229,98 +200,152 @@ class Server(commands.Cog):
     # ---------------------------------------------------------------------
     welcome_group = app_commands.Group(name="welcome", description="Configure welcome messages.")
 
-    @welcome_group.command(name="set", description="Configure welcome messages.")
-    @app_commands.describe(channel="Channel to post welcome messages in", message="Message text. Use {member} (or {user}) and {server} as placeholders")
+    @welcome_group.command(name="message", description="Welcome new members with a plain text message.")
+    @app_commands.describe(
+        channel="Channel to post welcome messages in",
+        message="Message text. Use {member} (or {user}) and {server} as placeholders",
+    )
     @app_commands.checks.has_permissions(manage_guild=True)
-    async def welcome_set(self, interaction: discord.Interaction, channel: discord.TextChannel, message: str = "Welcome {member} to {server}!"):
+    async def welcome_message(
+        self,
+        interaction: discord.Interaction,
+        channel: discord.TextChannel,
+        message: str = "Welcome {member} to {server}!",
+    ):
         cfg = storage.get_guild_setting("welcome", interaction.guild.id) or {}
         cfg["channel_id"] = channel.id
+        cfg["mode"] = "message"
         cfg["message"] = message
         storage.set_guild_setting("welcome", interaction.guild.id, cfg)
-        embed = make_embed("Welcome Messages Configured", f"New members will be welcomed in {channel.mention}.")
+        embed = make_embed("Welcome Messages Configured", f"New members will be welcomed in {channel.mention} with a plain message.")
         await interaction.response.send_message(embed=embed)
 
-    @welcome_group.command(name="embed", description="Toggle embed welcome.")
-    @app_commands.describe(enabled="Send welcome messages as an embed instead of plain text")
+    @welcome_group.command(name="embed", description="Welcome new members with a custom embed.")
+    @app_commands.describe(
+        channel="Channel to post welcome messages in",
+        title="Embed title (optional). Supports {member}/{user} and {server}",
+        description="Embed description. Supports {member}/{user} and {server}",
+        footer="Embed footer text (optional). Supports {member}/{user} and {server}",
+        image="Image URL to display in the embed (optional)",
+    )
     @app_commands.checks.has_permissions(manage_guild=True)
-    async def welcome_embed(self, interaction: discord.Interaction, enabled: bool):
+    async def welcome_embed(
+        self,
+        interaction: discord.Interaction,
+        channel: discord.TextChannel,
+        description: str = "Welcome {member} to {server}!",
+        title: str = None,
+        footer: str = None,
+        image: str = None,
+    ):
         cfg = storage.get_guild_setting("welcome", interaction.guild.id) or {}
-        cfg["embed"] = enabled
+        cfg["channel_id"] = channel.id
+        cfg["mode"] = "embed"
+        cfg["embed"] = {
+            "title": title,
+            "description": description,
+            "footer": footer,
+            "image": image,
+        }
         storage.set_guild_setting("welcome", interaction.guild.id, cfg)
-        embed = make_embed("Welcome Embed Toggled", f"Embed welcome messages are now {'enabled' if enabled else 'disabled'}.")
+        embed = make_embed("Welcome Messages Configured", f"New members will be welcomed in {channel.mention} with an embed.")
         await interaction.response.send_message(embed=embed)
-
-    @welcome_group.command(name="test", description="Send a test welcome.")
-    @app_commands.checks.has_permissions(manage_guild=True)
-    async def welcome_test(self, interaction: discord.Interaction):
-        cfg = storage.get_guild_setting("welcome", interaction.guild.id)
-        if not cfg or not cfg.get("channel_id"):
-            await interaction.response.send_message("Welcome messages aren't configured yet. Use /welcome set first.", ephemeral=True)
-            return
-        channel = interaction.guild.get_channel(int(cfg["channel_id"]))
-        if channel is None:
-            await interaction.response.send_message("The configured welcome channel no longer exists.", ephemeral=True)
-            return
-        message = cfg.get("message", "Welcome {member} to {server}!")
-        message = (
-            message.replace("{member}", interaction.user.mention)
-            .replace("{user}", interaction.user.mention)
-            .replace("{server}", interaction.guild.name)
-        )
-        if cfg.get("embed"):
-            await channel.send(embed=discord.Embed(description=message, color=BLACK))
-        else:
-            await channel.send(message)
-        await interaction.response.send_message(f"Sent a test welcome message in {channel.mention}.", ephemeral=True)
 
     # ---------------------------------------------------------------------
     # Goodbye configuration
     # ---------------------------------------------------------------------
     goodbye_group = app_commands.Group(name="goodbye", description="Configure leave messages.")
 
-    @goodbye_group.command(name="set", description="Configure leave messages.")
-    @app_commands.describe(channel="Channel to post leave messages in", message="Message text. Use {member} (or {user}) and {server} as placeholders")
+    @goodbye_group.command(name="message", description="Announce members leaving with a plain text message.")
+    @app_commands.describe(
+        channel="Channel to post leave messages in",
+        message="Message text. Use {member} (or {user}) and {server} as placeholders",
+    )
     @app_commands.checks.has_permissions(manage_guild=True)
-    async def goodbye_set(self, interaction: discord.Interaction, channel: discord.TextChannel, message: str = "{member} has left {server}."):
+    async def goodbye_message(
+        self,
+        interaction: discord.Interaction,
+        channel: discord.TextChannel,
+        message: str = "{member} has left {server}.",
+    ):
         cfg = storage.get_guild_setting("goodbye", interaction.guild.id) or {}
         cfg["channel_id"] = channel.id
+        cfg["mode"] = "message"
         cfg["message"] = message
         storage.set_guild_setting("goodbye", interaction.guild.id, cfg)
-        embed = make_embed("Goodbye Messages Configured", f"Leave messages will be posted in {channel.mention}.")
+        embed = make_embed("Goodbye Messages Configured", f"Leave messages will be posted in {channel.mention} as a plain message.")
         await interaction.response.send_message(embed=embed)
 
-    @goodbye_group.command(name="embed", description="Toggle embed goodbye.")
-    @app_commands.describe(enabled="Send leave messages as an embed instead of plain text")
+    @goodbye_group.command(name="embed", description="Announce members leaving with a custom embed.")
+    @app_commands.describe(
+        channel="Channel to post leave messages in",
+        title="Embed title (optional). Supports {member}/{user} and {server}",
+        description="Embed description. Supports {member}/{user} and {server}",
+        footer="Embed footer text (optional). Supports {member}/{user} and {server}",
+        image="Image URL to display in the embed (optional)",
+    )
     @app_commands.checks.has_permissions(manage_guild=True)
-    async def goodbye_embed(self, interaction: discord.Interaction, enabled: bool):
+    async def goodbye_embed(
+        self,
+        interaction: discord.Interaction,
+        channel: discord.TextChannel,
+        description: str = "{member} has left {server}.",
+        title: str = None,
+        footer: str = None,
+        image: str = None,
+    ):
         cfg = storage.get_guild_setting("goodbye", interaction.guild.id) or {}
-        cfg["embed"] = enabled
+        cfg["channel_id"] = channel.id
+        cfg["mode"] = "embed"
+        cfg["embed"] = {
+            "title": title,
+            "description": description,
+            "footer": footer,
+            "image": image,
+        }
         storage.set_guild_setting("goodbye", interaction.guild.id, cfg)
-        embed = make_embed("Goodbye Embed Toggled", f"Embed goodbye messages are now {'enabled' if enabled else 'disabled'}.")
+        embed = make_embed("Goodbye Messages Configured", f"Leave messages will be posted in {channel.mention} as an embed.")
         await interaction.response.send_message(embed=embed)
 
-    @goodbye_group.command(name="test", description="Send a test goodbye.")
+    # ---------------------------------------------------------------------
+    # Greet testing (welcome + goodbye combined)
+    # ---------------------------------------------------------------------
+    greet_group = app_commands.Group(name="greet", description="Test greeting messages.")
+
+    @greet_group.command(name="test", description="Send a test welcome or goodbye message.")
+    @app_commands.describe(type="Which greeting to test")
+    @app_commands.choices(type=[
+        app_commands.Choice(name="Welcome", value="welcome"),
+        app_commands.Choice(name="Goodbye", value="goodbye"),
+    ])
     @app_commands.checks.has_permissions(manage_guild=True)
-    async def goodbye_test(self, interaction: discord.Interaction):
-        cfg = storage.get_guild_setting("goodbye", interaction.guild.id)
+    async def greet_test(self, interaction: discord.Interaction, type: app_commands.Choice[str]):
+
+        key = type.value
+        label = type.name
+
+        cfg = storage.get_guild_setting(key, interaction.guild.id)
+
         if not cfg or not cfg.get("channel_id"):
-            await interaction.response.send_message("Goodbye messages aren't configured yet. Use /goodbye set first.", ephemeral=True)
+            await interaction.response.send_message(
+                f"{label} messages aren't configured yet. Use /{key} message or /{key} embed first.",
+                ephemeral=True,
+            )
             return
+
         channel = interaction.guild.get_channel(int(cfg["channel_id"]))
+
         if channel is None:
-            await interaction.response.send_message("The configured goodbye channel no longer exists.", ephemeral=True)
+            await interaction.response.send_message(f"The configured {key} channel no longer exists.", ephemeral=True)
             return
-        message = cfg.get("message", "{member} has left {server}.")
-        message = (
-            message.replace("{member}", str(interaction.user))
-            .replace("{user}", str(interaction.user))
-            .replace("{server}", interaction.guild.name)
-        )
-        if cfg.get("embed"):
-            await channel.send(embed=discord.Embed(description=message, color=BLACK))
-        else:
-            await channel.send(message)
-        await interaction.response.send_message(f"Sent a test goodbye message in {channel.mention}.", ephemeral=True)
+
+        mention = key == "welcome"
+
+        payload = _build_greet_payload(cfg, interaction.user, interaction.guild, mention=mention)
+
+        await channel.send(**payload)
+
+        await interaction.response.send_message(f"Sent a test {key} message in {channel.mention}.", ephemeral=True)
 
     # ---------------------------------------------------------------------
     # Logs configuration
