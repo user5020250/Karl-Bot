@@ -12,7 +12,6 @@ log = logging.getLogger("bot")
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 PREFIX = os.getenv("BOT_PREFIX", "!")
-GUILD_ID = os.getenv("GUILD_ID")  # set this in Railway variables, or hardcode below
 
 intents = discord.Intents.default()
 intents.members = True
@@ -25,7 +24,6 @@ EXTENSIONS = [
     "cogs.channels",
     "cogs.voice",
     "cogs.roles",
-    "cogs.automod",
     "cogs.server",
     "cogs.modlogs",
     "cogs.utility",
@@ -50,32 +48,8 @@ class ModBot(commands.Bot):
             except Exception:
                 log.exception("Failed to load extension: %s", extension)
 
-        # IMPORTANT: sync to ONLY one scope at a time. Syncing both globally
-        # and to a specific guild registers duplicate copies of the same
-        # commands in that guild, which causes CommandSignatureMismatch
-        # errors when Discord and the bot disagree on which copy is live.
-        if GUILD_ID:
-            guild = discord.Object(id=int(GUILD_ID))
-
-            # Copy the (in-memory) globally-defined commands into this
-            # guild BEFORE clearing anything — clearing first would wipe
-            # the source commands, leaving nothing to copy.
-            self.tree.copy_global_to(guild=guild)
-            synced_guild = await self.tree.sync(guild=guild)
-            log.info("Guild-synced %d commands instantly to %s", len(synced_guild), GUILD_ID)
-
-            # Now wipe the global registration so it can't linger
-            # alongside the guild-scoped copy (this only removes them
-            # from Discord's global scope, the guild copy is unaffected).
-            self.tree.clear_commands(guild=None)
-            await self.tree.sync()
-            log.info("Cleared global commands")
-        else:
-            # No GUILD_ID set — fall back to a normal global sync.
-            # Note: global command updates can take up to ~1 hour to
-            # propagate to all clients.
-            synced = await self.tree.sync()
-            log.info("Synced %d application commands globally", len(synced))
+        synced = await self.tree.sync()
+        log.info("Synced %d application commands", len(synced))
 
     async def on_ready(self):
         log.info("Logged in as %s (%s)", self.user, self.user.id)
