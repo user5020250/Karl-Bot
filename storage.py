@@ -1,157 +1,239 @@
 """
-Simple JSON-file backed storage for the bot.
+SQLite-backed storage for the bot.
 
-This is intentionally lightweight so the bot can run on a single Railway
-service with no external database. Every guild's settings and history are
-kept in one data.json file on disk.
+Same public API as the previous JSON-file version (add_history, get_history,
+set_afk, clear_afk, get_afk, get_guild_setting, set_guild_setting, set_sticky,
+clear_sticky, get_sticky, add_reaction_role, get_reaction_roles, add_to_list,
+remove_from_list, get_list) -- no other cog needs to change.
 
-NOTE: Railway's filesystem is ephemeral on redeploy unless you attach a
-volume. For anything you want to survive redeploys, either attach a
-Railway volume mounted at this project's working directory, or swap this
-module out for a real database (Postgres, Redis, etc).
+IMPORTANT (same caveat as before, just with a real DB now): Railway's
+filesystem is ephemeral on redeploy unless you attach a volume. Point
+BOT_DB_PATH at a Railway volume mount so bot.db survives redeploys --
+otherwise this will keep resetting exactly like the JSON file did.
 """
 
 import json
 import os
+import sqlite3
 import threading
 from datetime import datetime, timezone
 
-DATA_FILE = os.path.join(os.path.dirname(__file__), "data.json")
+DB_PATH = os.environ.get("BOT_DB_PATH", os.path.join(os.path.dirname(__file__), "bot.db"))
 
 _lock = threading.Lock()
 
-DEFAULTS = {
-    "history": {},      # guild_id -> user_id -> [ {type, moderator_id, reason, timestamp} ]
-    "afk": {},          # guild_id -> user_id -> {reason, since}
-    "automod": {},      # guild_id -> settings dict
-    "sticky": {},       # channel_id -> content
-    "reactionroles": {},# message_id -> {emoji: role_id}
-    "jail": {},         # guild_id -> {role_id, channel_id}
-    "verify": {},       # guild_id -> {role_id}
-    "autorole": {},     # guild_id -> [role_id, ...]
-    "welcome": {},      # guild_id -> {channel_id, message}
-    "goodbye": {},      # guild_id -> {channel_id, message}
-    "logs": {},         # guild_id -> channel_id
-    "whitelist": {},    # guild_id -> [id, ...]
-    "blacklist": {},    # guild_id -> [id, ...]
-    "ignore": {},       # guild_id -> [id, ...]
-    "maintenance": {},  # guild_id -> bool
-}
-
-
-def _read():
-    if not os.path.exists(DATA_FILE):
-        return json.loads(json.dumps(DEFAULTS))
-    with open(DATA_FILE, "r") as f:
-        try:
-            data = json.load(f)
-        except json.JSONDecodeError:
-            data = {}
-    for k, v in DEFAULTS.items():
-        data.setdefault(k, json.loads(json.dumps(v)))
-    return data
-
-
-def _write(data):
-    tmp = DATA_FILE + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(data, f, indent=2)
-    os.replace(tmp, DATA_FILE)
-
 
 class Storage:
-    """Thread-safe accessor around the JSON data file."""
+    """Thread-safe accessor around a SQLite database."""
 
-    def __init__(self):
+    def __init__(self, db_path: str = DB_PATH):
+        os.makedirs(os.path.dirname(os.path.abspath(db_path)), exist_ok=True)
+        self._conn = sqlite3.connect(db_path, check_same_thread=False)
+        self._conn.execute("PRAGMA journal_mode=WAL")
+        self._init_schema()
+
+    def _init_schema(self):
         with _lock:
-            self.data = _read()
+            self._conn.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS guild_settings (
+                    section TEXT NOT NULL,
+                    guild_id TEXT NOT NULL,
+                    value TEXT NOT NULL,
+                    PRIMARY KEY (section, guild_id)
+                );
 
-    def save(self):
-        with _lock:
-            _write(self.data)
+                CREATE TABLE IF NOT EXISTS history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    guild_id TEXT NOT NULL,
+                    user_id TEXT NOT NULL,
+                    type TEXT NOT NULL,
+                    moderator_id TEXT NOT NULL,
+                    reason TEXT NOT NULL,
+                    timestamp TEXT NOT NULL
+                );
 
-    # -- generic helpers -------------------------------------------------
-    def section(self, name):
-        return self.data.setdefault(name, {})
+                CREATE INDEX IF NOT EXISTS idx_history_guild_user
+                    ON history (guild_id, user_id);
 
-    # -- history / moderation log ----------------------------------------
+                CREATE TABLE IF NOT EXISTS afk (
+                    guild_id TEXT NOT NULL,
+                    user_id TEXT NOT NULL,
+                    reason TEXT NOT NULL,
+                    since TEXT NOT NULL,
+                    PRIMARY KEY (guild_id, user_id)
+                );
+
+                CREATE TABLE IF NOT EXISTS sticky (
+                    channel_id TEXT PRIMARY KEY,
+                    content TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS reactionroles (
+                    message_id TEXT NOT NULL,
+                    emoji TEXT NOT NULL,
+                    role_id TEXT NOT NULL,
+                    PRIMARY KEY (message_id, emoji)
+                );
+                """
+            )
+            self._conn.commit()
+
+    # ------------------------------------------------------------------
+    # history / moderation log
+    # ------------------------------------------------------------------
     def add_history(self, guild_id: int, user_id: int, action: str, moderator_id: int, reason: str = None):
-        guild_hist = self.section("history").setdefault(str(guild_id), {})
-        user_hist = guild_hist.setdefault(str(user_id), [])
-        user_hist.append({
-            "type": action,
-            "moderator_id": moderator_id,
-            "reason": reason or "No reason provided",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        })
-        self.save()
+        with _lock:
+            self._conn.execute(
+                "INSERT INTO history (guild_id, user_id, type, moderator_id, reason, timestamp) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    str(guild_id),
+                    str(user_id),
+                    action,
+                    str(moderator_id),
+                    reason or "No reason provided",
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+            self._conn.commit()
 
     def get_history(self, guild_id: int, user_id: int):
-        return self.section("history").get(str(guild_id), {}).get(str(user_id), [])
+        with _lock:
+            rows = self._conn.execute(
+                "SELECT type, moderator_id, reason, timestamp FROM history "
+                "WHERE guild_id = ? AND user_id = ? ORDER BY id ASC",
+                (str(guild_id), str(user_id)),
+            ).fetchall()
+        return [
+            {
+                "type": row[0],
+                "moderator_id": int(row[1]),
+                "reason": row[2],
+                "timestamp": row[3],
+            }
+            for row in rows
+        ]
 
-    # -- afk ---------------------------------------------------------------
+    # ------------------------------------------------------------------
+    # afk
+    # ------------------------------------------------------------------
     def set_afk(self, guild_id: int, user_id: int, reason: str):
-        g = self.section("afk").setdefault(str(guild_id), {})
-        g[str(user_id)] = {"reason": reason, "since": datetime.now(timezone.utc).isoformat()}
-        self.save()
+        with _lock:
+            self._conn.execute(
+                "INSERT INTO afk (guild_id, user_id, reason, since) VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(guild_id, user_id) DO UPDATE SET reason = excluded.reason, since = excluded.since",
+                (str(guild_id), str(user_id), reason, datetime.now(timezone.utc).isoformat()),
+            )
+            self._conn.commit()
 
-    def clear_afk(self, guild_id: int, user_id: int):
-        g = self.section("afk").setdefault(str(guild_id), {})
-        if str(user_id) in g:
-            del g[str(user_id)]
-            self.save()
-            return True
-        return False
+    def clear_afk(self, guild_id: int, user_id: int) -> bool:
+        with _lock:
+            cur = self._conn.execute(
+                "DELETE FROM afk WHERE guild_id = ? AND user_id = ?",
+                (str(guild_id), str(user_id)),
+            )
+            self._conn.commit()
+            return cur.rowcount > 0
 
     def get_afk(self, guild_id: int, user_id: int):
-        return self.section("afk").get(str(guild_id), {}).get(str(user_id))
+        with _lock:
+            row = self._conn.execute(
+                "SELECT reason, since FROM afk WHERE guild_id = ? AND user_id = ?",
+                (str(guild_id), str(user_id)),
+            ).fetchone()
+        if row is None:
+            return None
+        return {"reason": row[0], "since": row[1]}
 
-    # -- per-guild settings (automod, jail, verify, welcome, goodbye, logs)
+    # ------------------------------------------------------------------
+    # per-guild settings (automod, jail, verify, welcome, goodbye, logs,
+    # maintenance, panic, and list-style sections: whitelist/blacklist/
+    # ignore/autorole all share this same table)
+    # ------------------------------------------------------------------
     def get_guild_setting(self, section: str, guild_id: int, default=None):
-        return self.section(section).get(str(guild_id), default)
+        with _lock:
+            row = self._conn.execute(
+                "SELECT value FROM guild_settings WHERE section = ? AND guild_id = ?",
+                (section, str(guild_id)),
+            ).fetchone()
+        if row is None:
+            return default
+        return json.loads(row[0])
 
     def set_guild_setting(self, section: str, guild_id: int, value):
-        self.section(section)[str(guild_id)] = value
-        self.save()
+        payload = json.dumps(value)
+        with _lock:
+            self._conn.execute(
+                "INSERT INTO guild_settings (section, guild_id, value) VALUES (?, ?, ?) "
+                "ON CONFLICT(section, guild_id) DO UPDATE SET value = excluded.value",
+                (section, str(guild_id), payload),
+            )
+            self._conn.commit()
 
-    # -- sticky messages -----------------------------------------------
+    # ------------------------------------------------------------------
+    # sticky messages
+    # ------------------------------------------------------------------
     def set_sticky(self, channel_id: int, content: str):
-        self.section("sticky")[str(channel_id)] = content
-        self.save()
+        with _lock:
+            self._conn.execute(
+                "INSERT INTO sticky (channel_id, content) VALUES (?, ?) "
+                "ON CONFLICT(channel_id) DO UPDATE SET content = excluded.content",
+                (str(channel_id), content),
+            )
+            self._conn.commit()
 
     def clear_sticky(self, channel_id: int):
-        s = self.section("sticky")
-        if str(channel_id) in s:
-            del s[str(channel_id)]
-            self.save()
+        with _lock:
+            self._conn.execute("DELETE FROM sticky WHERE channel_id = ?", (str(channel_id),))
+            self._conn.commit()
 
     def get_sticky(self, channel_id: int):
-        return self.section("sticky").get(str(channel_id))
+        with _lock:
+            row = self._conn.execute(
+                "SELECT content FROM sticky WHERE channel_id = ?",
+                (str(channel_id),),
+            ).fetchone()
+        return row[0] if row else None
 
-    # -- reaction roles --------------------------------------------------
+    # ------------------------------------------------------------------
+    # reaction roles
+    # ------------------------------------------------------------------
     def add_reaction_role(self, message_id: int, emoji: str, role_id: int):
-        rr = self.section("reactionroles").setdefault(str(message_id), {})
-        rr[emoji] = role_id
-        self.save()
+        with _lock:
+            self._conn.execute(
+                "INSERT INTO reactionroles (message_id, emoji, role_id) VALUES (?, ?, ?) "
+                "ON CONFLICT(message_id, emoji) DO UPDATE SET role_id = excluded.role_id",
+                (str(message_id), emoji, str(role_id)),
+            )
+            self._conn.commit()
 
     def get_reaction_roles(self, message_id: int):
-        return self.section("reactionroles").get(str(message_id), {})
+        with _lock:
+            rows = self._conn.execute(
+                "SELECT emoji, role_id FROM reactionroles WHERE message_id = ?",
+                (str(message_id),),
+            ).fetchall()
+        return {emoji: int(role_id) for emoji, role_id in rows}
 
-    # -- list-style settings (whitelist/blacklist/ignore/autorole) ------
+    # ------------------------------------------------------------------
+    # list-style settings (whitelist/blacklist/ignore/autorole)
+    # Stored in the same guild_settings table as a JSON list.
+    # ------------------------------------------------------------------
     def add_to_list(self, section: str, guild_id: int, item_id: int):
-        lst = self.section(section).setdefault(str(guild_id), [])
+        lst = self.get_guild_setting(section, guild_id, [])
         if item_id not in lst:
             lst.append(item_id)
-            self.save()
+            self.set_guild_setting(section, guild_id, lst)
 
     def remove_from_list(self, section: str, guild_id: int, item_id: int):
-        lst = self.section(section).setdefault(str(guild_id), [])
+        lst = self.get_guild_setting(section, guild_id, [])
         if item_id in lst:
             lst.remove(item_id)
-            self.save()
+            self.set_guild_setting(section, guild_id, lst)
 
     def get_list(self, section: str, guild_id: int):
-        return self.section(section).get(str(guild_id), [])
+        return self.get_guild_setting(section, guild_id, [])
 
 
 storage = Storage()
