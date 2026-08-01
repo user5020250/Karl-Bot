@@ -33,7 +33,6 @@ EXTENSIONS = [
     "cogs.help",
     "cogs.social",
     "cogs.games",
-    "cogs.automod",
 ]
 
 
