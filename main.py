@@ -12,6 +12,7 @@ log = logging.getLogger("bot")
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 PREFIX = os.getenv("BOT_PREFIX", "!")
+CLEAR_GUILD_COMMANDS = os.getenv("CLEAR_GUILD_COMMANDS", "false").lower() == "true"
 
 intents = discord.Intents.default()
 intents.members = True
@@ -40,6 +41,7 @@ EXTENSIONS = [
 class ModBot(commands.Bot):
     def __init__(self):
         super().__init__(command_prefix=PREFIX, intents=intents, help_command=None)
+        self._synced = False
 
     async def setup_hook(self):
         for extension in EXTENSIONS:
@@ -49,14 +51,32 @@ class ModBot(commands.Bot):
             except Exception:
                 log.exception("Failed to load extension: %s", extension)
 
+        # Global sync only — this bot registers commands globally.
+        # Per-server behavior comes from each command reading/writing
+        # settings keyed by guild_id, not from guild-scoped command sync.
         synced = await self.tree.sync()
-        log.info("Synced %d application commands", len(synced))
+        log.info("Synced %d application commands (global)", len(synced))
 
     async def on_ready(self):
         log.info("Logged in as %s (%s)", self.user, self.user.id)
         await self.change_presence(
             activity=discord.Activity(type=discord.ActivityType.watching, name="the server")
         )
+
+        # One-time cleanup: clears any leftover guild-scoped command
+        # registrations left over from earlier testing, which is what
+        # causes commands to show up twice in a given server. Only runs
+        # when CLEAR_GUILD_COMMANDS=true is set, and only once per process.
+        if CLEAR_GUILD_COMMANDS and not self._synced:
+            self._synced = True
+            for guild in self.guilds:
+                try:
+                    self.tree.clear_commands(guild=guild)
+                    await self.tree.sync(guild=guild)
+                    log.info("Cleared stale guild commands for %s (%s)", guild.name, guild.id)
+                except discord.HTTPException:
+                    log.exception("Failed clearing guild commands for %s", guild.id)
+            log.info("Guild command cleanup complete. You can unset CLEAR_GUILD_COMMANDS now.")
 
 
 bot = ModBot()
