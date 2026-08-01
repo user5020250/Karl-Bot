@@ -135,7 +135,6 @@ CATEGORIES = {
         ("/hangman", "Guess the hidden word.", "None"),
         ("/wordle", "Play Wordle.", "None"),
         ("/typingtest", "Test typing speed.", "None"),
-        ("/memory", "Memory challenge.", "None"),
         ("/math", "Solve a random math problem.", "None"),
         ("/fastclick", "Click as fast as possible.", "None"),
         ("/scramble", "Unscramble a word.", "None"),
