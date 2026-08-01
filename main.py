@@ -12,6 +12,7 @@ log = logging.getLogger("bot")
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 PREFIX = os.getenv("BOT_PREFIX", "!")
+GUILD_ID = os.getenv("GUILD_ID")  # set this in Railway variables, or hardcode below
 
 intents = discord.Intents.default()
 intents.members = True
@@ -51,6 +52,16 @@ class ModBot(commands.Bot):
 
         synced = await self.tree.sync()
         log.info("Synced %d application commands", len(synced))
+
+        # Guild-scoped sync so command changes apply instantly instead of
+        # waiting on Discord's global propagation delay (up to ~1 hour).
+        if GUILD_ID:
+            guild = discord.Object(id=int(GUILD_ID))
+            self.tree.copy_global_to(guild=guild)
+            synced_guild = await self.tree.sync(guild=guild)
+            log.info("Guild-synced %d commands instantly to %s", len(synced_guild), GUILD_ID)
+        else:
+            log.warning("GUILD_ID not set — skipping instant guild sync")
 
     async def on_ready(self):
         log.info("Logged in as %s (%s)", self.user, self.user.id)
