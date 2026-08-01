@@ -32,6 +32,7 @@ EXTENSIONS = [
     "cogs.info",
     "cogs.afk",
     "cogs.jail",
+    "cogs.help",
 ]
 
 
