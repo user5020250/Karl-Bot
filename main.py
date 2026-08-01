@@ -34,6 +34,7 @@ EXTENSIONS = [
     "cogs.jail",
     "cogs.help",
     "cogs.social",
+    "cogs.games",
 ]
 
 
