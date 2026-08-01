@@ -1291,7 +1291,7 @@ class AutoMod(commands.Cog):
 # ============================================================
 # SETUP
 # ============================================================
-
-
 async def setup(bot: commands.Bot):
-    await bot.add_cog(AutoMod(bot))
+    cog = AutoMod(bot)
+    await bot.add_cog(cog)
+    bot.tree.add_command(automod_group)
