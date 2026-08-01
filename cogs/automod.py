@@ -598,7 +598,7 @@ class AutoMod(commands.Cog):
 
     @automod_group.command(
         name="panel",
-        description="Open the AutoMod configuration panel"
+        description="Opens the AutoMod panel to toggle and configure filters."
     )
     @app_commands.checks.has_permissions(
         administrator=True
@@ -625,7 +625,7 @@ class AutoMod(commands.Cog):
 
     @profanity_group.command(
         name="add",
-        description="Add blocked word"
+        description="Add a word to the profanity filter."
     )
     @app_commands.checks.has_permissions(administrator=True)
     async def profanity_add(
@@ -674,7 +674,7 @@ class AutoMod(commands.Cog):
 
     @profanity_group.command(
         name="remove",
-        description="Remove blocked word"
+        description="Remove a word from the profanity filter."
     )
     @app_commands.checks.has_permissions(administrator=True)
     async def profanity_remove(
@@ -723,7 +723,7 @@ class AutoMod(commands.Cog):
 
     @profanity_group.command(
         name="list",
-        description="List blocked words"
+        description="List all blocked words."
     )
     @app_commands.checks.has_permissions(administrator=True)
     async def profanity_list(
@@ -764,7 +764,7 @@ class AutoMod(commands.Cog):
 
     @whitelist_group.command(
         name="add",
-        description="Whitelist user or role"
+        description="Whitelist a user or role from AutoMod."
     )
     @app_commands.checks.has_permissions(administrator=True)
     async def whitelist_add(
@@ -803,7 +803,7 @@ class AutoMod(commands.Cog):
 
     @whitelist_group.command(
         name="remove",
-        description="Remove whitelist user or role"
+        description="Remove a user or role from the whitelist."
     )
     @app_commands.checks.has_permissions(administrator=True)
     async def whitelist_remove(
@@ -847,7 +847,7 @@ class AutoMod(commands.Cog):
 
     @blacklist_group.command(
         name="add",
-        description="Blacklist user or role"
+        description="Blacklist a user or role."
     )
     @app_commands.checks.has_permissions(administrator=True)
     async def blacklist_add(
@@ -886,7 +886,7 @@ class AutoMod(commands.Cog):
 
     @blacklist_group.command(
         name="remove",
-        description="Remove blacklist user or role"
+        description="Remove a user or role from the blacklist."
     )
     @app_commands.checks.has_permissions(administrator=True)
     async def blacklist_remove(
@@ -930,7 +930,7 @@ class AutoMod(commands.Cog):
 
     @ignore_group.command(
         name="add",
-        description="Ignore channel or role"
+        description="Ignore a channel or role for AutoMod."
     )
     @app_commands.checks.has_permissions(administrator=True)
     async def ignore_add(
@@ -969,7 +969,7 @@ class AutoMod(commands.Cog):
 
     @ignore_group.command(
         name="remove",
-        description="Remove ignored channel or role"
+        description="Remove a channel or role from the ignore list."
     )
     @app_commands.checks.has_permissions(administrator=True)
     async def ignore_remove(
@@ -1291,7 +1291,14 @@ class AutoMod(commands.Cog):
 # ============================================================
 # SETUP
 # ============================================================
-async def setup(bot: commands.Bot):
+
+
+async def setup(
+    bot: commands.Bot
+):
+
     cog = AutoMod(bot)
+
     await bot.add_cog(cog)
+
     bot.tree.add_command(automod_group)
