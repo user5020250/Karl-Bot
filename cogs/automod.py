@@ -473,6 +473,8 @@ class AutoMod(commands.Cog):
 
         self.bot = bot
 
+        # Register command groups BEFORE setup_hook syncs
+        bot.tree.add_command(automod_group)
 
         self.recent_messages = defaultdict(
             lambda: defaultdict(deque)
@@ -1039,141 +1041,91 @@ class AutoMod(commands.Cog):
         ):
             return
 
-
-
         settings = get_settings(
             message.guild.id
         )
 
-
-
         # LINKS
-
         cfg = settings.get("links", {})
-
         if cfg.get("enabled"):
-
             if LINK_RE.search(message.content):
-
                 await self._violation(
                     message,
                     "Links are not allowed."
                 )
                 return
 
-
-
         # INVITES
-
         cfg = settings.get("invites", {})
-
         if cfg.get("enabled"):
-
             if INVITE_RE.search(message.content):
-
                 await self._violation(
                     message,
                     "Discord invites are not allowed."
                 )
                 return
 
-
-
         # GIF
-
         cfg = settings.get("gif", {})
-
         if cfg.get("enabled"):
-
             if GIF_RE.search(message.content):
-
                 await self._violation(
                     message,
                     "GIFs are disabled."
                 )
                 return
 
-
-
         # PROFANITY
-
         cfg = settings.get(
             "profanity",
             {}
         )
-
         if cfg.get("enabled"):
-
             content = message.content.lower()
-
             for word in cfg.get("words", []):
-
                 if word in content:
-
                     await self._violation(
                         message,
                         "Profanity detected."
                     )
                     return
 
-
-
         # DUPLICATE
-
         cfg = settings.get(
             "duplicate",
             {}
         )
-
         if cfg.get("enabled"):
-
             previous = self.last_message_content[
                 message.guild.id
             ].get(
                 message.author.id
             )
-
-
             self.last_message_content[
                 message.guild.id
             ][
                 message.author.id
             ] = message.content
-
-
             if previous == message.content:
-
                 await self._violation(
                     message,
                     "Duplicate message."
                 )
                 return
 
-
-
         # SPAM
-
         cfg = settings.get(
             "spam",
             {}
         )
-
-
         if cfg.get("enabled"):
-
             now = time.time()
-
-
             messages = self.recent_messages[
                 message.guild.id
             ][
                 message.author.id
             ]
-
-
             messages.append(now)
-
-
             while (
                 messages
                 and now - messages[0] > cfg.get(
@@ -1182,46 +1134,32 @@ class AutoMod(commands.Cog):
                 )
             ):
                 messages.popleft()
-
-
-
             if len(messages) > cfg.get(
                 "limit",
                 5
             ):
-
                 await self._violation(
                     message,
                     "Spam detected."
                 )
 
-
-
     # ========================================================
     # MEMBER JOIN PROTECTION
     # ========================================================
-
 
     @commands.Cog.listener()
     async def on_member_join(
         self,
         member: discord.Member
     ):
-
         guild = member.guild
-
-
         settings = get_settings(
             guild.id
         )
-
-
         cfg = settings.get(
             "bot",
             {}
         )
-
-
         if (
             cfg.get("enabled")
             and member.bot
@@ -1230,38 +1168,23 @@ class AutoMod(commands.Cog):
                 member
             )
         ):
-
             try:
-
                 await member.kick(
                     reason="Unauthorized bot"
                 )
-
-
             except discord.HTTPException:
                 pass
-
-
 
         cfg = settings.get(
             "raid",
             {}
         )
-
-
         if cfg.get("enabled"):
-
             now = time.time()
-
-
             joins = self.recent_joins[
                 guild.id
             ]
-
-
             joins.append(now)
-
-
             while (
                 joins
                 and now - joins[0] > cfg.get(
@@ -1270,14 +1193,10 @@ class AutoMod(commands.Cog):
                 )
             ):
                 joins.popleft()
-
-
-
             if len(joins) >= cfg.get(
                 "joins",
                 10
             ):
-
                 await send_log(
                     guild,
                     make_embed(
@@ -1286,19 +1205,12 @@ class AutoMod(commands.Cog):
                     )
                 )
 
-
-
 # ============================================================
 # SETUP
 # ============================================================
-
-
 async def setup(
     bot: commands.Bot
 ):
-
     cog = AutoMod(bot)
-
     await bot.add_cog(cog)
 
-    bot.tree.add_command(automod_group)
