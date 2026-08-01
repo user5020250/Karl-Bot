@@ -139,6 +139,10 @@ CATEGORIES = {
         ("/fastclick", "Click as fast as possible.", "None"),
         ("/scramble", "Unscramble a word.", "None"),
         ("/connect4", "Play Connect Four with another user.", "None"),
+        ("/rps", "Rock Paper Scissors battle.", "None"),
+        ("/checkers", "Play checkers against another player.", "None"),
+        ("/chess", "Play chess against another player.", "None"),
+        ("/battleship", "Guess and destroy the opponent's ships.", "None"),
     ],
     "Misc": [
         ("/afk", "Sets your AFK status with an optional reason. Removed automatically when you send a message.", "None"),
