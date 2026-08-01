@@ -57,17 +57,19 @@ class ModBot(commands.Bot):
         if GUILD_ID:
             guild = discord.Object(id=int(GUILD_ID))
 
-            # Wipe any existing global commands so they can't linger
-            # alongside the guild-scoped copy.
-            self.tree.clear_commands(guild=None)
-            await self.tree.sync()
-            log.info("Cleared global commands")
-
-            # Register commands to this guild only — applies instantly,
-            # no propagation delay.
+            # Copy the (in-memory) globally-defined commands into this
+            # guild BEFORE clearing anything — clearing first would wipe
+            # the source commands, leaving nothing to copy.
             self.tree.copy_global_to(guild=guild)
             synced_guild = await self.tree.sync(guild=guild)
             log.info("Guild-synced %d commands instantly to %s", len(synced_guild), GUILD_ID)
+
+            # Now wipe the global registration so it can't linger
+            # alongside the guild-scoped copy (this only removes them
+            # from Discord's global scope, the guild copy is unaffected).
+            self.tree.clear_commands(guild=None)
+            await self.tree.sync()
+            log.info("Cleared global commands")
         else:
             # No GUILD_ID set — fall back to a normal global sync.
             # Note: global command updates can take up to ~1 hour to
