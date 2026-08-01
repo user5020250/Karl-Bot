@@ -1,7 +1,6 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
-
 from helpers import make_embed
 from storage import storage
 
@@ -16,7 +15,7 @@ class Afk(commands.Cog):
     @app_commands.describe(reason="Why you're AFK (optional)")
     async def afk(self, interaction: discord.Interaction, reason: str = None):
         storage.set_afk(interaction.guild.id, interaction.user.id, reason or "No reason given")
-        embed = make_embed(f"{interaction.user.mention} is now afk, {reason or 'no reason given'}.")
+        embed = make_embed("AFK", f"{interaction.user.mention} is now AFK: {reason or 'No reason given'}")
         await interaction.response.send_message(embed=embed)
 
     @commands.Cog.listener()
