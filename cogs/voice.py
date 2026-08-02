@@ -22,7 +22,7 @@ class Voice(commands.Cog):
         await member.move_to(None, reason=reason)
         embed = make_embed("Voice Kick", f"{member.mention} was disconnected from voice.\nReason: {reason or 'No reason provided'}")
         await interaction.response.send_message(embed=embed)
-        await send_log(interaction.guild, embed)
+        await send_log(interaction.guild, embed, category="voice")
 
     @app_commands.command(name="move", description="Moves a member.")
     @app_commands.describe(member="The member to move", channel="The voice channel to move them to")
@@ -35,7 +35,7 @@ class Voice(commands.Cog):
         await member.move_to(channel)
         embed = make_embed("Member Moved", f"{member.mention} was moved to {channel.mention}.")
         await interaction.response.send_message(embed=embed)
-        await send_log(interaction.guild, embed)
+        await send_log(interaction.guild, embed, category="voice")
 
     @app_commands.command(name="moveall", description="Moves everyone in a voice channel.")
     @app_commands.describe(source="The voice channel to move everyone from", destination="The voice channel to move everyone to")
@@ -52,7 +52,7 @@ class Voice(commands.Cog):
                 continue
         embed = make_embed("Voice Channel Moved", f"Moved {moved} member(s) from {source.mention} to {destination.mention}.")
         await interaction.followup.send(embed=embed)
-        await send_log(interaction.guild, embed)
+        await send_log(interaction.guild, embed, category="voice")
 
     @app_commands.command(name="mutevoice", description="Server mutes a member.")
     @app_commands.describe(member="The member to server mute", reason="Reason")
@@ -62,7 +62,7 @@ class Voice(commands.Cog):
         await member.edit(mute=True, reason=reason)
         embed = make_embed("Member Server Muted", f"{member.mention} has been server muted.\nReason: {reason or 'No reason provided'}")
         await interaction.response.send_message(embed=embed)
-        await send_log(interaction.guild, embed)
+        await send_log(interaction.guild, embed, category="voice")
 
     @app_commands.command(name="unmutevoice", description="Removes server mute.")
     @app_commands.describe(member="The member to unmute", reason="Reason")
@@ -72,7 +72,7 @@ class Voice(commands.Cog):
         await member.edit(mute=False, reason=reason)
         embed = make_embed("Server Mute Removed", f"{member.mention} is no longer server muted.")
         await interaction.response.send_message(embed=embed)
-        await send_log(interaction.guild, embed)
+        await send_log(interaction.guild, embed, category="voice")
 
     @app_commands.command(name="deafen", description="Server deafens a member.")
     @app_commands.describe(member="The member to server deafen", reason="Reason")
@@ -82,7 +82,7 @@ class Voice(commands.Cog):
         await member.edit(deafen=True, reason=reason)
         embed = make_embed("Member Server Deafened", f"{member.mention} has been server deafened.\nReason: {reason or 'No reason provided'}")
         await interaction.response.send_message(embed=embed)
-        await send_log(interaction.guild, embed)
+        await send_log(interaction.guild, embed, category="voice")
 
     @app_commands.command(name="undeafen", description="Removes server deafening.")
     @app_commands.describe(member="The member to undeafen", reason="Reason")
@@ -92,7 +92,7 @@ class Voice(commands.Cog):
         await member.edit(deafen=False, reason=reason)
         embed = make_embed("Server Deafen Removed", f"{member.mention} is no longer server deafened.")
         await interaction.response.send_message(embed=embed)
-        await send_log(interaction.guild, embed)
+        await send_log(interaction.guild, embed, category="voice")
 
 
 async def setup(bot: commands.Bot):
