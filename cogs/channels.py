@@ -22,7 +22,7 @@ class Channels(commands.Cog):
         await channel.set_permissions(interaction.guild.default_role, overwrite=overwrite, reason=reason)
         embed = make_embed("Channel Locked", f"{channel.mention} has been locked.\nReason: {reason or 'No reason provided'}")
         await interaction.response.send_message(embed=embed)
-        await send_log(interaction.guild, embed)
+        await send_log(interaction.guild, embed, category="channels_roles")
 
     @app_commands.command(name="unlock", description="Unlocks a channel.")
     @app_commands.describe(channel="The channel to unlock (defaults to this channel)", reason="Reason for unlocking")
@@ -35,7 +35,7 @@ class Channels(commands.Cog):
         await channel.set_permissions(interaction.guild.default_role, overwrite=overwrite, reason=reason)
         embed = make_embed("Channel Unlocked", f"{channel.mention} has been unlocked.\nReason: {reason or 'No reason provided'}")
         await interaction.response.send_message(embed=embed)
-        await send_log(interaction.guild, embed)
+        await send_log(interaction.guild, embed, category="channels_roles")
 
     @app_commands.command(name="slowmode", description="Sets channel slowmode.")
     @app_commands.describe(seconds="Slowmode delay in seconds (0-21600, 0 disables it)", channel="The channel to update (defaults to this channel)")
@@ -50,7 +50,7 @@ class Channels(commands.Cog):
             desc = f"Slowmode set to {seconds} seconds in {channel.mention}."
         embed = make_embed("Slowmode Updated", desc)
         await interaction.response.send_message(embed=embed)
-        await send_log(interaction.guild, embed)
+        await send_log(interaction.guild, embed, category="channels_roles")
 
     @app_commands.command(name="clone", description="Clones a channel.")
     @app_commands.describe(channel="The channel to clone (defaults to this channel)")
@@ -62,7 +62,7 @@ class Channels(commands.Cog):
         await new_channel.move(after=channel)
         embed = make_embed("Channel Cloned", f"Created {new_channel.mention} as a clone of {channel.mention}.")
         await interaction.response.send_message(embed=embed)
-        await send_log(interaction.guild, embed)
+        await send_log(interaction.guild, embed, category="channels_roles")
 
     @app_commands.command(name="nuke", description="Deletes all messages by recreating the channel.")
     @app_commands.describe(channel="The channel to nuke (defaults to this channel)")
@@ -76,7 +76,7 @@ class Channels(commands.Cog):
         await new_channel.edit(position=position)
         embed = make_embed("Channel Nuked", "This channel has been nuked.")
         await new_channel.send(embed=embed)
-        await send_log(interaction.guild, embed)
+        await send_log(interaction.guild, embed, category="channels_roles")
         if not interaction.response.is_done():
             await interaction.response.send_message("Channel nuked.", ephemeral=True)
 
@@ -94,7 +94,7 @@ class Channels(commands.Cog):
             await channel.edit(category=category, reason="Archived")
         embed = make_embed("Channel Archived", f"{channel.mention} has been archived and locked for new messages.")
         await interaction.response.send_message(embed=embed)
-        await send_log(interaction.guild, embed)
+        await send_log(interaction.guild, embed, category="channels_roles")
 
     @app_commands.command(name="renamechannel", description="Renames a channel.")
     @app_commands.describe(new_name="The new channel name", channel="The channel to rename (defaults to this channel)")
@@ -106,7 +106,7 @@ class Channels(commands.Cog):
         await channel.edit(name=new_name, reason=f"Renamed by {interaction.user}")
         embed = make_embed("Channel Renamed", f"Renamed #{old_name} to #{new_name}.")
         await interaction.response.send_message(embed=embed)
-        await send_log(interaction.guild, embed)
+        await send_log(interaction.guild, embed, category="channels_roles")
 
 
 async def setup(bot: commands.Bot):
