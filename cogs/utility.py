@@ -10,6 +10,7 @@ from discord.ext import commands
 BLACK = discord.Color.from_str("#000000")
 
 ROLE_MENTION_RE = re.compile(r"^<@&(\d+)>$")
+ROLE_MENTION_GLOBAL_RE = re.compile(r"<@&\d+>")
 
 REACTIONROLE_DATA_FILE = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "reactionrole_data.json"
@@ -434,9 +435,12 @@ class Utility(commands.Cog):
 
         guild = interaction.guild
 
-        tokens = [
+        mentions = ROLE_MENTION_GLOBAL_RE.findall(roles)
+        remainder = ROLE_MENTION_GLOBAL_RE.sub(",", roles)
+
+        tokens = mentions + [
             token.strip()
-            for line in roles.splitlines()
+            for line in remainder.splitlines()
             for token in line.split(",")
         ]
         tokens = [t for t in tokens if t]
