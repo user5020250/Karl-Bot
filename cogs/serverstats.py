@@ -4,11 +4,11 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
-log = logging.getLogger("serverstats-bot")
+log = logging.getLogger("bot")
 
 CATEGORY_NAME = "📊 Server Stats"
 UPDATE_INTERVAL_MINUTES = 10  # Discord rate-limits channel renames to
-                              # ~2 per 10 min per channel, so don't go lower
+                              # ~2 per 10 min per channel — don't go lower
                               # than ~5 min on larger servers.
 
 
@@ -32,8 +32,7 @@ class ServerStats(commands.Cog):
         total_members = guild.member_count or len(members)
         bots = sum(1 for m in members if m.bot)
 
-        # status is only populated if the presences intent is enabled
-        # and the guild has been fully chunked/cached.
+        # Requires the Presence intent (privileged) to be accurate.
         online = sum(
             1
             for m in members
@@ -83,16 +82,12 @@ class ServerStats(commands.Cog):
         }
 
     async def sync_guild_stats(self, guild: discord.Guild):
-        # Make sure the member cache is populated (needed for accurate
-        # counts even outside the initial on_ready chunking).
         if guild.large and not guild.chunked:
             await guild.chunk()
 
         stats = self.compute_stats(guild)
 
-        category = discord.utils.get(
-            guild.categories, name=CATEGORY_NAME
-        )
+        category = discord.utils.get(guild.categories, name=CATEGORY_NAME)
         overwrites = self.locked_overwrites(guild)
 
         if category is None:
@@ -100,10 +95,7 @@ class ServerStats(commands.Cog):
                 CATEGORY_NAME, overwrites=overwrites
             )
 
-        existing = {
-            c.name.split(":")[0]: c
-            for c in category.voice_channels
-        }
+        existing = {c.name.split(":")[0]: c for c in category.voice_channels}
 
         for label, value in stats.items():
             channel_name = f"{label}: {value}"
@@ -122,14 +114,12 @@ class ServerStats(commands.Cog):
     async def refresh_loop(self):
         for guild in self.bot.guilds:
             try:
-                # Only refresh guilds that already have the stats category,
-                # so we don't touch servers that never ran /serverstats.
                 if discord.utils.get(guild.categories, name=CATEGORY_NAME):
                     await self.sync_guild_stats(guild)
             except discord.Forbidden:
-                log.warning(f"Missing permissions in guild {guild.id}")
+                log.warning("Missing permissions in guild %s", guild.id)
             except Exception:
-                log.exception(f"Failed to refresh stats for guild {guild.id}")
+                log.exception("Failed to refresh stats for guild %s", guild.id)
 
     @refresh_loop.before_loop
     async def before_refresh_loop(self):
@@ -148,15 +138,13 @@ class ServerStats(commands.Cog):
 
         guild = interaction.guild
         if guild is None:
-            await interaction.followup.send(
-                "This command must be run inside a server."
-            )
+            await interaction.followup.send("This command must be run inside a server.")
             return
 
         try:
             await self.sync_guild_stats(guild)
             await interaction.followup.send(
-                f"✅ Server stats channels created/updated. "
+                f"Server stats channels created/updated. "
                 f"They'll auto-refresh every {UPDATE_INTERVAL_MINUTES} minutes."
             )
         except discord.Forbidden:
@@ -165,26 +153,7 @@ class ServerStats(commands.Cog):
             )
         except Exception:
             log.exception("serverstats command failed")
-            await interaction.followup.send(
-                "❌ Something went wrong creating the stat channels."
-            )
-
-    @serverstats.error
-    async def serverstats_error(
-        self, interaction: discord.Interaction, error: app_commands.AppCommandError
-    ):
-        if isinstance(error, app_commands.MissingPermissions):
-            await interaction.response.send_message(
-                "You need **Manage Server** permission to use this.",
-                ephemeral=True,
-            )
-        elif isinstance(error, app_commands.BotMissingPermissions):
-            await interaction.response.send_message(
-                "I need **Manage Channels** permission to do this.",
-                ephemeral=True,
-            )
-        else:
-            log.exception("Unhandled serverstats error", exc_info=error)
+            await interaction.followup.send("❌ Something went wrong creating the stat channels.")
 
 
 async def setup(bot: commands.Bot):
