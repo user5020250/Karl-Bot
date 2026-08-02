@@ -571,10 +571,7 @@ class Utility(commands.Cog):
         role = guild.get_role(role_id) if guild else None
 
         if role is None:
-            await interaction.response.send_message(
-                "That role no longer exists.",
-                ephemeral=True
-            )
+            await self._send_ephemeral(interaction, "That role no longer exists.")
             return
 
         data = load_reactionrole_data()
@@ -588,25 +585,16 @@ class Utility(commands.Cog):
         if rr_type == "multiple":
             if has_role:
                 await member.remove_roles(role)
-                await interaction.response.send_message(
-                    f"Removed role `{role.name}`",
-                    ephemeral=True
-                )
+                await self._send_ephemeral(interaction, f"Removed role `{role.name}`")
             else:
                 await member.add_roles(role)
-                await interaction.response.send_message(
-                    f"Added role `{role.name}`",
-                    ephemeral=True
-                )
+                await self._send_ephemeral(interaction, f"Added role `{role.name}`")
             return
 
         if rr_type == "single":
             if has_role:
                 await member.remove_roles(role)
-                await interaction.response.send_message(
-                    f"Removed role `{role.name}`",
-                    ephemeral=True
-                )
+                await self._send_ephemeral(interaction, f"Removed role `{role.name}`")
                 return
 
             to_remove = [
@@ -616,18 +604,12 @@ class Utility(commands.Cog):
             if to_remove:
                 await member.remove_roles(*to_remove)
             await member.add_roles(role)
-            await interaction.response.send_message(
-                f"Added role `{role.name}`",
-                ephemeral=True
-            )
+            await self._send_ephemeral(interaction, f"Added role `{role.name}`")
             return
 
         if rr_type == "unique":
             if has_role:
-                await interaction.response.send_message(
-                    f"You already have `{role.name}`.",
-                    ephemeral=True
-                )
+                await self._send_ephemeral(interaction, f"You already have `{role.name}`.")
                 return
 
             to_remove = [
@@ -637,10 +619,7 @@ class Utility(commands.Cog):
             if to_remove:
                 await member.remove_roles(*to_remove)
             await member.add_roles(role)
-            await interaction.response.send_message(
-                f"Added role `{role.name}`",
-                ephemeral=True
-            )
+            await self._send_ephemeral(interaction, f"Added role `{role.name}`")
             return
 
 
