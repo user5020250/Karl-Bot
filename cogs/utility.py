@@ -661,14 +661,15 @@ class Utility(commands.Cog):
                 )
                 return
 
+            sent_msg = await interaction.channel.send(description)
+
             self.sticky_messages[interaction.channel.id] = {
                 "type": "text",
                 "content": description,
+                "last_message_id": sent_msg.id,
             }
 
             await self._send_ephemeral(interaction, "Sticky message enabled.")
-
-            await interaction.channel.send(description)
             return
 
         if not any([description, title, footer, img]):
@@ -692,14 +693,15 @@ class Utility(commands.Cog):
         if img:
             embed.set_image(url=img)
 
+        sent_msg = await interaction.channel.send(embed=embed)
+
         self.sticky_messages[interaction.channel.id] = {
             "type": "embed",
             "embed": embed,
+            "last_message_id": sent_msg.id,
         }
 
         await self._send_ephemeral(interaction, "Sticky message enabled.")
-
-        await interaction.channel.send(embed=embed)
 
 
     @sticky_group.command(
@@ -757,6 +759,7 @@ class Utility(commands.Cog):
             self.sticky_messages[interaction.channel.id] = {
                 "type": "text",
                 "content": description,
+                "last_message_id": msg.id,
             }
 
             await self._send_ephemeral(interaction, "Sticky message edited.")
@@ -788,6 +791,7 @@ class Utility(commands.Cog):
         self.sticky_messages[interaction.channel.id] = {
             "type": "embed",
             "embed": embed,
+            "last_message_id": msg.id,
         }
 
         await self._send_ephemeral(interaction, "Sticky message edited.")
@@ -803,10 +807,20 @@ class Utility(commands.Cog):
 
             sticky = self.sticky_messages[message.channel.id]
 
+            last_id = sticky.get("last_message_id")
+            if last_id:
+                try:
+                    old = await message.channel.fetch_message(last_id)
+                    await old.delete()
+                except discord.HTTPException:
+                    pass
+
             if sticky["type"] == "text":
-                await message.channel.send(sticky["content"])
+                new_msg = await message.channel.send(sticky["content"])
             else:
-                await message.channel.send(embed=sticky["embed"])
+                new_msg = await message.channel.send(embed=sticky["embed"])
+
+            sticky["last_message_id"] = new_msg.id
 
     # --------------------
     # PIN
