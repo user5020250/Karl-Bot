@@ -55,7 +55,7 @@ CATEGORIES = {
         ("/autorole add", "Add a role to be given automatically to new members.", "Manage Roles"),
         ("/autorole remove", "Remove a role from the autorole list.", "Manage Roles"),
         ("/autorole list", "List autoroles.", "Manage Roles"),
-        ("/logs", "Configure log channels.", "Manage Server"),
+        ("/logs", "Opens the logging panel to route Messages, Members, Moderation, Voice, Channels & Roles, and Server events to their own channels.", "Manage Server"),
     ],
     "Welcome & Goodbye": [
         ("/welcome message", "Welcome new members with a plain text message.", "Manage Server"),
