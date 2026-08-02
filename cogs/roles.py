@@ -25,7 +25,7 @@ class Roles(commands.Cog):
         await member.add_roles(role, reason=f"Added by {interaction.user}")
         embed = make_embed("Role Added", f"Gave {role.mention} to {member.mention}.")
         await interaction.response.send_message(embed=embed)
-        await send_log(interaction.guild, embed)
+        await send_log(interaction.guild, embed, category="channels_roles")
 
     @app_commands.command(name="removerole", description="Removes a role.")
     @app_commands.describe(member="The member to remove the role from", role="The role to remove")
@@ -41,7 +41,7 @@ class Roles(commands.Cog):
         await member.remove_roles(role, reason=f"Removed by {interaction.user}")
         embed = make_embed("Role Removed", f"Removed {role.mention} from {member.mention}.")
         await interaction.response.send_message(embed=embed)
-        await send_log(interaction.guild, embed)
+        await send_log(interaction.guild, embed, category="channels_roles")
 
     @app_commands.command(name="nickname", description="Changes nickname.")
     @app_commands.describe(member="The member to rename", new_nickname="The new nickname (leave blank to reset)")
@@ -53,7 +53,7 @@ class Roles(commands.Cog):
         new_display = new_nickname or member.name
         embed = make_embed("Nickname Changed", f"Changed {member.mention}'s nickname from '{old_nick}' to '{new_display}'.")
         await interaction.response.send_message(embed=embed)
-        await send_log(interaction.guild, embed)
+        await send_log(interaction.guild, embed, category="members")
 
 
 async def setup(bot: commands.Bot):
