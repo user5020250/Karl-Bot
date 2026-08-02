@@ -7,14 +7,17 @@ BLACK = discord.Color.from_str("#000000")
 GIF_API = "https://api.otakugifs.xyz/gif"
 
 # command name -> (API reaction key, verb used in the message)
+# NOTE: "highfive" and "bonk" are not valid reaction keys on otakugifs.xyz.
+# Mapped to the closest valid keys ("brofist" and "smack") so the command
+# names/verbs stay the same but the API call actually succeeds.
 REACTIONS = {
     "hug": ("hug", "hugs"),
     "kiss": ("kiss", "kisses"),
     "pat": ("pat", "pats"),
     "slap": ("slap", "slaps"),
     "poke": ("poke", "pokes"),
-    "highfive": ("highfive", "high fives"),
-    "bonk": ("bonk", "bonks"),
+    "highfive": ("brofist", "high fives"),
+    "bonk": ("smack", "bonks"),
     "wave": ("wave", "waves at"),
     "cuddle": ("cuddle", "cuddles"),
     "dance": ("dance", "dances with"),
@@ -41,19 +44,36 @@ class Social(commands.Cog):
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        # Reuse a single session instead of opening a new one per request.
+        self._session: aiohttp.ClientSession | None = None
+
+    async def cog_load(self):
+        self._session = aiohttp.ClientSession()
+
+    async def cog_unload(self):
+        if self._session and not self._session.closed:
+            await self._session.close()
 
     async def _fetch_gif(self, reaction: str) -> str | None:
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(GIF_API, params={"reaction": reaction}, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-                    if resp.status != 200:
-                        return None
-                    data = await resp.json()
-                    return data.get("url")
-        except (aiohttp.ClientError, discord.HTTPException):
+            assert self._session is not None
+            async with self._session.get(
+                GIF_API,
+                params={"reaction": reaction, "format": "gif"},
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as resp:
+                if resp.status != 200:
+                    return None
+                data = await resp.json()
+                return data.get("url")
+        except (aiohttp.ClientError, discord.HTTPException, TimeoutError):
             return None
 
     async def _send_action(self, interaction: discord.Interaction, member: discord.Member, action: str):
+        # Defer immediately so the network round trip can't blow past
+        # Discord's 3-second initial-response window.
+        await interaction.response.defer()
+
         reaction_key, verb = REACTIONS[action]
 
         if member.id == interaction.user.id:
@@ -66,7 +86,10 @@ class Social(commands.Cog):
         embed = discord.Embed(description=description, color=BLACK)
         if gif_url:
             embed.set_image(url=gif_url)
-        await interaction.response.send_message(embed=embed)
+        else:
+            embed.set_footer(text="Couldn't fetch a gif right now, sorry!")
+
+        await interaction.followup.send(embed=embed)
 
     @app_commands.command(name="hug", description="Hug another user.")
     @app_commands.describe(member="The user to hug")
@@ -122,6 +145,7 @@ class Social(commands.Cog):
     @app_commands.describe(member="The user to punch")
     async def punch(self, interaction: discord.Interaction, member: discord.Member):
         await self._send_action(interaction, member, "punch")
+
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Social(bot))
