@@ -1,10 +1,28 @@
 """Shared helper functions used across cogs."""
-
 import discord
+
 from storage import storage
 
-
 BLACK = discord.Color.from_str("#000000")
+
+# ============================================================
+# LOG CATEGORIES
+# Each maps to its own configurable channel via the /logs panel
+# (cogs/logs.py). Anything that calls send_log() without a
+# category falls back to "moderation" for backward compatibility
+# with cogs that predate this system.
+# ============================================================
+
+LOG_CATEGORIES = {
+    "messages": "Messages",
+    "members": "Members",
+    "moderation": "Moderation",
+    "voice": "Voice",
+    "channels_roles": "Channels & Roles",
+    "server": "Server",
+}
+
+LOG_SETTINGS_KEY = "logchannels"
 
 
 def make_embed(title: str, description: str = None, color: discord.Color = None):
@@ -12,16 +30,33 @@ def make_embed(title: str, description: str = None, color: discord.Color = None)
     return embed
 
 
-async def get_log_channel(guild: discord.Guild):
-    """Return the configured mod-log channel for a guild, if any."""
-    channel_id = storage.get_guild_setting("logs", guild.id)
+def get_log_channels(guild_id: int) -> dict:
+    """Returns the full {category: channel_id} mapping for a guild."""
+    return storage.get_guild_setting(LOG_SETTINGS_KEY, guild_id, {}) or {}
+
+
+def set_log_channel(guild_id: int, category: str, channel_id: int):
+    settings = get_log_channels(guild_id)
+    settings[category] = channel_id
+    storage.set_guild_setting(LOG_SETTINGS_KEY, guild_id, settings)
+
+
+def clear_log_channel(guild_id: int, category: str):
+    settings = get_log_channels(guild_id)
+    settings.pop(category, None)
+    storage.set_guild_setting(LOG_SETTINGS_KEY, guild_id, settings)
+
+
+async def get_log_channel(guild: discord.Guild, category: str = "moderation"):
+    """Return the configured log channel for a guild/category, if any."""
+    channel_id = get_log_channels(guild.id).get(category)
     if not channel_id:
         return None
     return guild.get_channel(int(channel_id))
 
 
-async def send_log(guild: discord.Guild, embed: discord.Embed):
-    channel = await get_log_channel(guild)
+async def send_log(guild: discord.Guild, embed: discord.Embed, category: str = "moderation"):
+    channel = await get_log_channel(guild, category)
     if channel:
         try:
             await channel.send(embed=embed)
@@ -40,7 +75,6 @@ def action_embed(action: str, target: discord.abc.User, moderator: discord.abc.U
 
 def parse_duration(duration: str) -> int:
     """Parse strings like '10m', '2h', '1d' into a number of seconds.
-
     Raises ValueError if the string can't be parsed.
     """
     units = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
