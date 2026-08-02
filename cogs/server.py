@@ -55,7 +55,10 @@ def _build_greet_payload(cfg: dict, member: discord.Member, guild: discord.Guild
 
 
 class Server(commands.Cog):
-    """Server-wide configuration: lockdown, autorole, welcome/goodbye, logs."""
+    """Server-wide configuration: lockdown, autorole, welcome/goodbye.
+
+    Log channel configuration lives in cogs/logs.py (/logs panel).
+    """
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -105,7 +108,7 @@ class Server(commands.Cog):
         await interaction.response.defer()
         embed = await self._lock_all_channels(interaction.guild, reason or "Server lockdown")
         await interaction.followup.send(embed=embed)
-        await send_log(interaction.guild, embed)
+        await send_log(interaction.guild, embed, category="moderation")
 
     @app_commands.command(name="unlockdown", description="End lockdown.")
     @app_commands.checks.has_permissions(administrator=True)
@@ -127,7 +130,7 @@ class Server(commands.Cog):
             description += f"\n\nCould not unlock {len(failed)} channel(s): {shown}"
         embed = make_embed("Lockdown Lifted", description)
         await interaction.followup.send(embed=embed)
-        await send_log(guild, embed)
+        await send_log(guild, embed, category="moderation")
 
     # ---------------------------------------------------------------------
     # Autorole
@@ -346,17 +349,6 @@ class Server(commands.Cog):
         await channel.send(**payload)
 
         await interaction.response.send_message(f"Sent a test {key} message in {channel.mention}.", ephemeral=True)
-
-    # ---------------------------------------------------------------------
-    # Logs configuration
-    # ---------------------------------------------------------------------
-    @app_commands.command(name="logs", description="Configure log channels.")
-    @app_commands.describe(channel="Channel to send moderation logs to")
-    @app_commands.checks.has_permissions(manage_guild=True)
-    async def logs(self, interaction: discord.Interaction, channel: discord.TextChannel):
-        storage.set_guild_setting("logs", interaction.guild.id, channel.id)
-        embed = make_embed("Log Channel Set", f"Moderation actions will now be logged in {channel.mention}.")
-        await interaction.response.send_message(embed=embed)
 
 
 async def setup(bot: commands.Bot):
