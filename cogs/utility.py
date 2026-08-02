@@ -1,3 +1,5 @@
+import json
+import os
 import re
 
 import discord
@@ -9,9 +11,29 @@ BLACK = discord.Color.from_str("#000000")
 
 ROLE_MENTION_RE = re.compile(r"^<@&(\d+)>$")
 
+REACTIONROLE_DATA_FILE = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "reactionrole_data.json"
+)
+
+
+def load_reactionrole_data() -> dict:
+    if not os.path.exists(REACTIONROLE_DATA_FILE):
+        return {}
+    with open(REACTIONROLE_DATA_FILE, "r", encoding="utf-8") as f:
+        try:
+            return json.load(f)
+        except json.JSONDecodeError:
+            return {}
+
+
+def save_reactionrole_data(data: dict) -> None:
+    with open(REACTIONROLE_DATA_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+
 
 def resolve_role(guild: discord.Guild, token: str):
-    """Resolve a role from a mention, raw ID, or exact name (case-insensitive)."""
+    """Resolve a role from a mention, raw ID, or name (case-insensitive,
+    with or without a leading @)."""
     match = ROLE_MENTION_RE.match(token)
     if match:
         return guild.get_role(int(match.group(1)))
@@ -19,32 +41,39 @@ def resolve_role(guild: discord.Guild, token: str):
     if token.isdigit():
         return guild.get_role(int(token))
 
+    name = token[1:] if token.startswith("@") else token
+
     return discord.utils.find(
-        lambda r: r.name.lower() == token.lower(), guild.roles
+        lambda r: r.name.lower() == name.lower(), guild.roles
     )
 
 
 class ReactionRoleModal(discord.ui.Modal, title="Reaction Roles"):
     roles_input = discord.ui.TextInput(
-        label="Emoji + Role, one pair per line",
+        label="Roles (comma or newline separated)",
         style=discord.TextStyle.paragraph,
-        placeholder="🎮 Gamers\n🎨 Artists\n@Musicians\n987654321098765432",
+        placeholder="Gamers, Artists, Musicians, ...",
         required=True,
         max_length=4000,
     )
 
-    def __init__(self, message: discord.Message):
+    def __init__(self, message: discord.Message, rr_type: str):
         super().__init__()
         self.message = message
+        self.rr_type = rr_type
 
     async def on_submit(self, interaction: discord.Interaction):
         guild = interaction.guild
 
-        lines = [
-            ln.strip() for ln in self.roles_input.value.splitlines() if ln.strip()
+        raw = self.roles_input.value
+        tokens = [
+            token.strip()
+            for line in raw.splitlines()
+            for token in line.split(",")
         ]
+        tokens = [t for t in tokens if t]
 
-        if not lines:
+        if not tokens:
             await interaction.response.send_message(
                 "No roles were provided.",
                 ephemeral=True
@@ -54,70 +83,55 @@ class ReactionRoleModal(discord.ui.Modal, title="Reaction Roles"):
         view = discord.ui.View(timeout=None)
         added = []
         errors = []
+        role_ids = []
 
-        for line_num, line in enumerate(lines, start=1):
-            parts = line.split(maxsplit=1)
-
-            if len(parts) == 2:
-                emoji_token, role_token = parts
-            else:
-                emoji_token, role_token = None, parts[0]
-
-            role = resolve_role(guild, role_token)
-
-            # in case the "emoji" token was actually part of a multi-word role name
-            if role is None and emoji_token is not None:
-                whole_line_role = resolve_role(guild, line)
-                if whole_line_role is not None:
-                    role = whole_line_role
-                    emoji_token = None
+        for token in tokens:
+            role = resolve_role(guild, token)
 
             if role is None:
-                errors.append(f"Line {line_num}: role `{role_token}` not found.")
+                errors.append(f"Role `{token}` not found.")
                 continue
+
+            if role.id in role_ids:
+                continue  # skip duplicate
 
             if role >= guild.me.top_role:
                 errors.append(
-                    f"Line {line_num}: my role is below `{role.name}`, "
-                    f"can't assign it."
+                    f"My role is below `{role.name}`, can't assign it."
                 )
                 continue
-
-            emoji = None
-            if emoji_token:
-                try:
-                    emoji = discord.PartialEmoji.from_str(emoji_token)
-                except Exception:
-                    errors.append(
-                        f"Line {line_num}: `{emoji_token}` isn't a valid emoji, "
-                        f"added button without it."
-                    )
-                    emoji_token = None
 
             button = discord.ui.Button(
                 label=role.name,
                 style=discord.ButtonStyle.secondary,
                 custom_id=f"reactionrole:{role.id}",
-                emoji=emoji,
             )
 
             try:
                 view.add_item(button)
             except ValueError:
                 errors.append(
-                    f"Line {line_num}: stopped here — Discord allows a "
-                    f"maximum of 25 buttons on one message."
+                    "Stopped here — Discord allows a maximum of 25 "
+                    "buttons on one message."
                 )
                 break
 
-            added.append(f"{(emoji_token + ' ') if emoji_token else ''}{role.mention}")
+            role_ids.append(role.id)
+            added.append(role.mention)
 
         if added:
             await self.message.edit(view=view)
 
+            data = load_reactionrole_data()
+            data[str(self.message.id)] = {
+                "type": self.rr_type,
+                "roles": role_ids,
+            }
+            save_reactionrole_data(data)
+
         summary = ""
         if added:
-            summary += "**Added:**\n" + "\n".join(added) + "\n"
+            summary += "**Added:**\n" + ", ".join(added) + "\n"
         if errors:
             summary += "**Errors:**\n" + "\n".join(errors)
         if not summary:
@@ -474,13 +488,20 @@ class Utility(commands.Cog):
         description="Attach reaction role buttons to an existing message."
     )
     @app_commands.describe(
-        message_id="The ID of the message (in this channel) to attach buttons to."
+        message_id="The ID of the message (in this channel) to attach buttons to.",
+        type="How members can select roles from this button group."
     )
+    @app_commands.choices(type=[
+        app_commands.Choice(name="single role", value="single"),
+        app_commands.Choice(name="multiple role", value="multiple"),
+        app_commands.Choice(name="unique", value="unique"),
+    ])
     @app_commands.checks.has_permissions(manage_roles=True)
     async def reactionrole(
         self,
         interaction: discord.Interaction,
-        message_id: str
+        message_id: str,
+        type: app_commands.Choice[str]
     ):
 
         if not message_id.isdigit():
@@ -501,7 +522,9 @@ class Utility(commands.Cog):
             )
             return
 
-        await interaction.response.send_modal(ReactionRoleModal(message))
+        await interaction.response.send_modal(
+            ReactionRoleModal(message, type.value)
+        )
 
 
     @commands.Cog.listener()
@@ -526,20 +549,71 @@ class Utility(commands.Cog):
             )
             return
 
-        member = interaction.user
+        data = load_reactionrole_data()
+        config = data.get(str(interaction.message.id), {})
+        rr_type = config.get("type", "multiple")
+        group_role_ids = set(config.get("roles", [role_id]))
 
-        if role in member.roles:
-            await member.remove_roles(role)
-            await interaction.response.send_message(
-                f"Removed role `{role.name}`",
-                ephemeral=True
-            )
-        else:
+        member = interaction.user
+        has_role = role in member.roles
+
+        if rr_type == "multiple":
+            if has_role:
+                await member.remove_roles(role)
+                await interaction.response.send_message(
+                    f"Removed role `{role.name}`",
+                    ephemeral=True
+                )
+            else:
+                await member.add_roles(role)
+                await interaction.response.send_message(
+                    f"Added role `{role.name}`",
+                    ephemeral=True
+                )
+            return
+
+        if rr_type == "single":
+            if has_role:
+                await member.remove_roles(role)
+                await interaction.response.send_message(
+                    f"Removed role `{role.name}`",
+                    ephemeral=True
+                )
+                return
+
+            to_remove = [
+                r for r in member.roles
+                if r.id in group_role_ids and r.id != role_id
+            ]
+            if to_remove:
+                await member.remove_roles(*to_remove)
             await member.add_roles(role)
             await interaction.response.send_message(
                 f"Added role `{role.name}`",
                 ephemeral=True
             )
+            return
+
+        if rr_type == "unique":
+            if has_role:
+                await interaction.response.send_message(
+                    f"You already have `{role.name}`.",
+                    ephemeral=True
+                )
+                return
+
+            to_remove = [
+                r for r in member.roles
+                if r.id in group_role_ids and r.id != role_id
+            ]
+            if to_remove:
+                await member.remove_roles(*to_remove)
+            await member.add_roles(role)
+            await interaction.response.send_message(
+                f"Added role `{role.name}`",
+                ephemeral=True
+            )
+            return
 
 
     # --------------------
