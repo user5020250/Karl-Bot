@@ -48,98 +48,6 @@ def resolve_role(guild: discord.Guild, token: str):
     )
 
 
-class ReactionRoleModal(discord.ui.Modal, title="Reaction Roles"):
-    roles_input = discord.ui.TextInput(
-        label="Roles (comma or newline separated)",
-        style=discord.TextStyle.paragraph,
-        placeholder="Gamers, Artists, Musicians, ...",
-        required=True,
-        max_length=4000,
-    )
-
-    def __init__(self, message: discord.Message, rr_type: str):
-        super().__init__()
-        self.message = message
-        self.rr_type = rr_type
-
-    async def on_submit(self, interaction: discord.Interaction):
-        guild = interaction.guild
-
-        raw = self.roles_input.value
-        tokens = [
-            token.strip()
-            for line in raw.splitlines()
-            for token in line.split(",")
-        ]
-        tokens = [t for t in tokens if t]
-
-        if not tokens:
-            await interaction.response.send_message(
-                "No roles were provided.",
-                ephemeral=True
-            )
-            return
-
-        view = discord.ui.View(timeout=None)
-        added = []
-        errors = []
-        role_ids = []
-
-        for token in tokens:
-            role = resolve_role(guild, token)
-
-            if role is None:
-                errors.append(f"Role `{token}` not found.")
-                continue
-
-            if role.id in role_ids:
-                continue  # skip duplicate
-
-            if role >= guild.me.top_role:
-                errors.append(
-                    f"My role is below `{role.name}`, can't assign it."
-                )
-                continue
-
-            button = discord.ui.Button(
-                label=role.name,
-                style=discord.ButtonStyle.secondary,
-                custom_id=f"reactionrole:{role.id}",
-            )
-
-            try:
-                view.add_item(button)
-            except ValueError:
-                errors.append(
-                    "Stopped here — Discord allows a maximum of 25 "
-                    "buttons on one message."
-                )
-                break
-
-            role_ids.append(role.id)
-            added.append(role.mention)
-
-        if added:
-            await self.message.edit(view=view)
-
-            data = load_reactionrole_data()
-            data[str(self.message.id)] = {
-                "type": self.rr_type,
-                "roles": role_ids,
-            }
-            save_reactionrole_data(data)
-
-        summary = ""
-        if added:
-            summary += "**Added:**\n" + ", ".join(added) + "\n"
-        if errors:
-            summary += "**Errors:**\n" + "\n".join(errors)
-        if not summary:
-            summary = "Nothing was added."
-
-        await interaction.response.send_message(summary, ephemeral=True)
-
-
 class Utility(commands.Cog):
 
     say_group = app_commands.Group(
@@ -489,7 +397,8 @@ class Utility(commands.Cog):
     )
     @app_commands.describe(
         message_id="The ID of the message (in this channel) to attach buttons to.",
-        type="How members can select roles from this button group."
+        type="How members can select roles from this button group.",
+        roles="Roles, comma-separated (mention, ID, or exact name). No limit."
     )
     @app_commands.choices(type=[
         app_commands.Choice(name="single role", value="single"),
@@ -501,7 +410,8 @@ class Utility(commands.Cog):
         self,
         interaction: discord.Interaction,
         message_id: str,
-        type: app_commands.Choice[str]
+        type: app_commands.Choice[str],
+        roles: str
     ):
 
         if not message_id.isdigit():
@@ -522,9 +432,80 @@ class Utility(commands.Cog):
             )
             return
 
-        await interaction.response.send_modal(
-            ReactionRoleModal(message, type.value)
-        )
+        guild = interaction.guild
+
+        tokens = [
+            token.strip()
+            for line in roles.splitlines()
+            for token in line.split(",")
+        ]
+        tokens = [t for t in tokens if t]
+
+        if not tokens:
+            await interaction.response.send_message(
+                "No roles were provided.",
+                ephemeral=True
+            )
+            return
+
+        view = discord.ui.View(timeout=None)
+        added = []
+        errors = []
+        role_ids = []
+
+        for token in tokens:
+            role = resolve_role(guild, token)
+
+            if role is None:
+                errors.append(f"Role `{token}` not found.")
+                continue
+
+            if role.id in role_ids:
+                continue  # skip duplicate
+
+            if role >= guild.me.top_role:
+                errors.append(
+                    f"My role is below `{role.name}`, can't assign it."
+                )
+                continue
+
+            button = discord.ui.Button(
+                label=role.name,
+                style=discord.ButtonStyle.secondary,
+                custom_id=f"reactionrole:{role.id}",
+            )
+
+            try:
+                view.add_item(button)
+            except ValueError:
+                errors.append(
+                    "Stopped here — Discord allows a maximum of 25 "
+                    "buttons on one message."
+                )
+                break
+
+            role_ids.append(role.id)
+            added.append(role.mention)
+
+        if added:
+            await message.edit(view=view)
+
+            data = load_reactionrole_data()
+            data[str(message.id)] = {
+                "type": type.value,
+                "roles": role_ids,
+            }
+            save_reactionrole_data(data)
+
+        summary = ""
+        if added:
+            summary += "**Added:**\n" + ", ".join(added) + "\n"
+        if errors:
+            summary += "**Errors:**\n" + "\n".join(errors)
+        if not summary:
+            summary = "Nothing was added."
+
+        await interaction.response.send_message(summary, ephemeral=True)
 
 
     @commands.Cog.listener()
