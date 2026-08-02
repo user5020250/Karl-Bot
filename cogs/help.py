@@ -81,7 +81,7 @@ CATEGORIES = {
         ("/embed edit", "Edits an embed previously sent by the bot.", "Manage Messages"),
         ("/announce", "Posts an announcement.", "Manage Messages"),
         ("/poll", "Creates a poll.", "Manage Messages"),
-        ("/reactionrole", "Creates a reaction role message.", "Manage Roles"),
+        ("/reactionrole", "Creates a button role message.", "Manage Roles"),
         ("/sticky set", "Pins a message to the bottom by reposting it.", "Manage Messages"),
         ("/sticky edit", "Edits an existing sticky message.", "Manage Messages"),
         ("/pin", "Pins a message.", "Manage Messages"),
