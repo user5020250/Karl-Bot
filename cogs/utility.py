@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import re
@@ -68,6 +69,19 @@ class Utility(commands.Cog):
         self.bot = bot
         self.sticky_messages = {}
 
+    async def _send_ephemeral(self, interaction: discord.Interaction, content: str, delay: float = 5):
+        """Send an ephemeral reply and schedule it to auto-delete shortly after,
+        without blocking whatever the caller does next."""
+        await interaction.response.send_message(content, ephemeral=True)
+        asyncio.create_task(self._delete_after(interaction, delay))
+
+    async def _delete_after(self, interaction: discord.Interaction, delay: float):
+        await asyncio.sleep(delay)
+        try:
+            await interaction.delete_original_response()
+        except discord.HTTPException:
+            pass
+
     # --------------------
     # SAY
     # --------------------
@@ -77,7 +91,7 @@ class Utility(commands.Cog):
         description="Sends a message as the bot."
     )
     @app_commands.describe(
-        description="The message content (required).",
+        description="The message content (optional).",
         title="Optional title (sent as an embed if provided).",
         footer="Optional footer text (sent as an embed if provided).",
         img="Optional image URL (sent as an embed if provided)."
@@ -86,22 +100,26 @@ class Utility(commands.Cog):
     async def say_send(
         self,
         interaction: discord.Interaction,
-        description: str,
+        description: str = None,
         title: str = None,
         footer: str = None,
         img: str = None
     ):
 
-        await interaction.response.send_message(
-            "Message sent.",
-            ephemeral=True
-        )
+        if not any([description, title, footer, img]):
+            await self._send_ephemeral(
+                interaction,
+                "Provide at least one of: description, title, footer, or img."
+            )
+            return
+
+        await self._send_ephemeral(interaction, "Message sent.")
 
         if title or footer or img:
-            embed = discord.Embed(
-                description=description,
-                color=BLACK
-            )
+            embed = discord.Embed(color=BLACK)
+
+            if description:
+                embed.description = description
 
             if title:
                 embed.title = title
@@ -123,7 +141,7 @@ class Utility(commands.Cog):
     )
     @app_commands.describe(
         message_id="The ID of the message to edit.",
-        description="The new message content (required).",
+        description="The new message content (optional).",
         title="Optional title (sent as an embed if provided).",
         footer="Optional footer text (sent as an embed if provided).",
         img="Optional image URL (sent as an embed if provided)."
@@ -133,7 +151,7 @@ class Utility(commands.Cog):
         self,
         interaction: discord.Interaction,
         message_id: str,
-        description: str,
+        description: str = None,
         title: str = None,
         footer: str = None,
         img: str = None
@@ -144,24 +162,27 @@ class Utility(commands.Cog):
                 int(message_id)
             )
         except:
-            await interaction.response.send_message(
-                "Invalid message ID.",
-                ephemeral=True
-            )
+            await self._send_ephemeral(interaction, "Invalid message ID.")
             return
 
         if msg.author.id != self.bot.user.id:
-            await interaction.response.send_message(
-                "I can only edit my own messages.",
-                ephemeral=True
+            await self._send_ephemeral(
+                interaction, "I can only edit my own messages."
+            )
+            return
+
+        if not any([description, title, footer, img]):
+            await self._send_ephemeral(
+                interaction,
+                "Provide at least one of: description, title, footer, or img."
             )
             return
 
         if title or footer or img:
-            embed = discord.Embed(
-                description=description,
-                color=BLACK
-            )
+            embed = discord.Embed(color=BLACK)
+
+            if description:
+                embed.description = description
 
             if title:
                 embed.title = title
@@ -176,10 +197,7 @@ class Utility(commands.Cog):
         else:
             await msg.edit(content=description, embed=None)
 
-        await interaction.response.send_message(
-            "Message edited.",
-            ephemeral=True
-        )
+        await self._send_ephemeral(interaction, "Message edited.")
 
 
     # --------------------
@@ -191,7 +209,7 @@ class Utility(commands.Cog):
         description="Sends a custom embed."
     )
     @app_commands.describe(
-        description="The embed description (required).",
+        description="The embed description (optional).",
         title="Optional title.",
         footer="Optional footer text.",
         img="Optional image URL."
@@ -200,16 +218,23 @@ class Utility(commands.Cog):
     async def embed_send(
         self,
         interaction: discord.Interaction,
-        description: str,
+        description: str = None,
         title: str = None,
         footer: str = None,
         img: str = None
     ):
 
-        embed = discord.Embed(
-            description=description,
-            color=BLACK
-        )
+        if not any([description, title, footer, img]):
+            await self._send_ephemeral(
+                interaction,
+                "Provide at least one of: description, title, footer, or img."
+            )
+            return
+
+        embed = discord.Embed(color=BLACK)
+
+        if description:
+            embed.description = description
 
         if title:
             embed.title = title
@@ -220,10 +245,7 @@ class Utility(commands.Cog):
         if img:
             embed.set_image(url=img)
 
-        await interaction.response.send_message(
-            "Embed sent.",
-            ephemeral=True
-        )
+        await self._send_ephemeral(interaction, "Embed sent.")
 
         await interaction.channel.send(embed=embed)
 
@@ -234,7 +256,7 @@ class Utility(commands.Cog):
     )
     @app_commands.describe(
         message_id="The ID of the embed message to edit.",
-        description="The new embed description (required).",
+        description="The new embed description (optional).",
         title="Optional title.",
         footer="Optional footer text.",
         img="Optional image URL."
@@ -244,7 +266,7 @@ class Utility(commands.Cog):
         self,
         interaction: discord.Interaction,
         message_id: str,
-        description: str,
+        description: str = None,
         title: str = None,
         footer: str = None,
         img: str = None
@@ -255,23 +277,26 @@ class Utility(commands.Cog):
                 int(message_id)
             )
         except:
-            await interaction.response.send_message(
-                "Invalid message ID.",
-                ephemeral=True
-            )
+            await self._send_ephemeral(interaction, "Invalid message ID.")
             return
 
         if msg.author.id != self.bot.user.id:
-            await interaction.response.send_message(
-                "I can only edit my own messages.",
-                ephemeral=True
+            await self._send_ephemeral(
+                interaction, "I can only edit my own messages."
             )
             return
 
-        embed = discord.Embed(
-            description=description,
-            color=BLACK
-        )
+        if not any([description, title, footer, img]):
+            await self._send_ephemeral(
+                interaction,
+                "Provide at least one of: description, title, footer, or img."
+            )
+            return
+
+        embed = discord.Embed(color=BLACK)
+
+        if description:
+            embed.description = description
 
         if title:
             embed.title = title
@@ -284,10 +309,7 @@ class Utility(commands.Cog):
 
         await msg.edit(embed=embed)
 
-        await interaction.response.send_message(
-            "Embed edited.",
-            ephemeral=True
-        )
+        await self._send_ephemeral(interaction, "Embed edited.")
 
 
     # --------------------
@@ -300,7 +322,7 @@ class Utility(commands.Cog):
     )
     @app_commands.describe(
         type="Plain text message or a styled embed.",
-        description="The announcement content (required).",
+        description="The announcement content (optional for embed type).",
         title="Optional title (embed only).",
         footer="Optional footer text (embed only).",
         img="Optional image URL (embed only)."
@@ -314,26 +336,39 @@ class Utility(commands.Cog):
         self,
         interaction: discord.Interaction,
         type: app_commands.Choice[str],
-        description: str,
+        description: str = None,
         title: str = None,
         footer: str = None,
         img: str = None
     ):
 
         if type.value == "message":
-            await interaction.response.send_message(
-                "Announcement posted.",
-                ephemeral=True
-            )
+            if not description:
+                await self._send_ephemeral(
+                    interaction,
+                    "A plain message announcement needs a description."
+                )
+                return
+
+            await self._send_ephemeral(interaction, "Announcement posted.")
 
             await interaction.channel.send(description)
             return
 
+        if not any([description, title, footer, img]):
+            await self._send_ephemeral(
+                interaction,
+                "Provide at least one of: description, title, footer, or img."
+            )
+            return
+
         embed = discord.Embed(
             title=title if title else "Announcement",
-            description=description,
             color=BLACK
         )
+
+        if description:
+            embed.description = description
 
         embed.set_footer(
             text=footer if footer else f"Posted by {interaction.user}"
@@ -342,10 +377,7 @@ class Utility(commands.Cog):
         if img:
             embed.set_image(url=img)
 
-        await interaction.response.send_message(
-            "Announcement posted.",
-            ephemeral=True
-        )
+        await self._send_ephemeral(interaction, "Announcement posted.")
 
         await interaction.channel.send(embed=embed)
 
@@ -429,6 +461,17 @@ class Utility(commands.Cog):
         except:
             await interaction.response.send_message(
                 "Invalid message ID.",
+                ephemeral=True
+            )
+            return
+
+        if message.author.id != self.bot.user.id:
+            await interaction.response.send_message(
+                "I can only attach reaction role buttons to a message "
+                "I sent myself (Discord doesn't allow bots to add "
+                "components to someone else's message). Post the message "
+                "with `/say send` or `/embed send` first, then run "
+                "`/reactionrole` on that message's ID.",
                 ephemeral=True
             )
             return
@@ -611,7 +654,7 @@ class Utility(commands.Cog):
     )
     @app_commands.describe(
         type="Plain text message or a styled embed.",
-        description="The main sticky text (required).",
+        description="The main sticky text (optional for embed type).",
         title="Optional title (embed only).",
         footer="Optional footer text (embed only).",
         img="Optional image URL (embed only)."
@@ -625,30 +668,41 @@ class Utility(commands.Cog):
         self,
         interaction: discord.Interaction,
         type: app_commands.Choice[str],
-        description: str,
+        description: str = None,
         title: str = None,
         footer: str = None,
         img: str = None
     ):
 
         if type.value == "message":
+            if not description:
+                await self._send_ephemeral(
+                    interaction,
+                    "A plain sticky message needs a description."
+                )
+                return
+
             self.sticky_messages[interaction.channel.id] = {
                 "type": "text",
                 "content": description,
             }
 
-            await interaction.response.send_message(
-                "Sticky message enabled.",
-                ephemeral=True
-            )
+            await self._send_ephemeral(interaction, "Sticky message enabled.")
 
             await interaction.channel.send(description)
             return
 
-        embed = discord.Embed(
-            description=description,
-            color=BLACK
-        )
+        if not any([description, title, footer, img]):
+            await self._send_ephemeral(
+                interaction,
+                "Provide at least one of: description, title, footer, or img."
+            )
+            return
+
+        embed = discord.Embed(color=BLACK)
+
+        if description:
+            embed.description = description
 
         if title:
             embed.title = title
@@ -664,10 +718,7 @@ class Utility(commands.Cog):
             "embed": embed,
         }
 
-        await interaction.response.send_message(
-            "Sticky message enabled.",
-            ephemeral=True
-        )
+        await self._send_ephemeral(interaction, "Sticky message enabled.")
 
         await interaction.channel.send(embed=embed)
 
@@ -679,7 +730,7 @@ class Utility(commands.Cog):
     @app_commands.describe(
         message_id="The ID of the sticky message to edit.",
         type="Plain text message or a styled embed.",
-        description="The new sticky text (required).",
+        description="The new sticky text (optional for embed type).",
         title="Optional title (embed only).",
         footer="Optional footer text (embed only).",
         img="Optional image URL (embed only)."
@@ -694,7 +745,7 @@ class Utility(commands.Cog):
         interaction: discord.Interaction,
         message_id: str,
         type: app_commands.Choice[str],
-        description: str,
+        description: str = None,
         title: str = None,
         footer: str = None,
         img: str = None
@@ -705,20 +756,23 @@ class Utility(commands.Cog):
                 int(message_id)
             )
         except:
-            await interaction.response.send_message(
-                "Invalid message ID.",
-                ephemeral=True
-            )
+            await self._send_ephemeral(interaction, "Invalid message ID.")
             return
 
         if msg.author.id != self.bot.user.id:
-            await interaction.response.send_message(
-                "I can only edit my own messages.",
-                ephemeral=True
+            await self._send_ephemeral(
+                interaction, "I can only edit my own messages."
             )
             return
 
         if type.value == "message":
+            if not description:
+                await self._send_ephemeral(
+                    interaction,
+                    "A plain sticky message needs a description."
+                )
+                return
+
             await msg.edit(content=description, embed=None)
 
             self.sticky_messages[interaction.channel.id] = {
@@ -726,16 +780,20 @@ class Utility(commands.Cog):
                 "content": description,
             }
 
-            await interaction.response.send_message(
-                "Sticky message edited.",
-                ephemeral=True
+            await self._send_ephemeral(interaction, "Sticky message edited.")
+            return
+
+        if not any([description, title, footer, img]):
+            await self._send_ephemeral(
+                interaction,
+                "Provide at least one of: description, title, footer, or img."
             )
             return
 
-        embed = discord.Embed(
-            description=description,
-            color=BLACK
-        )
+        embed = discord.Embed(color=BLACK)
+
+        if description:
+            embed.description = description
 
         if title:
             embed.title = title
@@ -753,10 +811,7 @@ class Utility(commands.Cog):
             "embed": embed,
         }
 
-        await interaction.response.send_message(
-            "Sticky message edited.",
-            ephemeral=True
-        )
+        await self._send_ephemeral(interaction, "Sticky message edited.")
 
 
     @commands.Cog.listener()
