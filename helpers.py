@@ -30,6 +30,66 @@ def make_embed(title: str, description: str = None, color: discord.Color = None)
     return embed
 
 
+
+def _parse_embed_fields(raw: str, inline: bool = False):
+    """Parse fields from `name | value; name | value` syntax."""
+    if not raw:
+        return []
+    fields = []
+    for item in raw.split(";"):
+        item = item.strip()
+        if not item or "|" not in item:
+            continue
+        name, value = item.split("|", 1)
+        name, value = name.strip(), value.strip()
+        if name and value:
+            fields.append((name[:256], value[:1024], inline))
+    return fields[:25]
+
+
+def build_custom_embed(*, author=None, author_icon=None, title=None, title_url=None, description=None,
+                       fields=None, inline_fields=None, thumbnail=None, image=None, footer=None,
+                       footer_icon=None, timestamp=False, color=None):
+    """Build a Discord embed from the bot's standard embed creator options."""
+    embed = discord.Embed(color=color or BLACK)
+    if author:
+        kwargs = {"name": author}
+        if author_icon:
+            kwargs["icon_url"] = author_icon
+        embed.set_author(**kwargs)
+    if title:
+        embed.title = title
+        if title_url:
+            embed.url = title_url
+    if description:
+        embed.description = description
+    parsed_fields = _parse_embed_fields(fields, False) + _parse_embed_fields(inline_fields, True)
+    for name, value, inline in parsed_fields[:25]:
+        embed.add_field(name=name, value=value, inline=inline)
+    if thumbnail:
+        embed.set_thumbnail(url=thumbnail)
+    if image:
+        embed.set_image(url=image)
+    if footer:
+        kwargs = {"text": footer}
+        if footer_icon:
+            kwargs["icon_url"] = footer_icon
+        embed.set_footer(**kwargs)
+    if timestamp:
+        embed.timestamp = discord.utils.utcnow()
+    return embed
+
+
+def parse_embed_color(value: str = None):
+    """Parse a hex embed color, defaulting to black."""
+    if not value:
+        return BLACK
+    value = value.strip().lstrip("#")
+    try:
+        return discord.Color(int(value, 16))
+    except ValueError:
+        raise ValueError("Color must be a valid hex value such as #000000 or FFFFFF.")
+
 def get_log_channels(guild_id: int) -> dict:
     """Returns the full {category: channel_id} mapping for a guild."""
     return storage.get_guild_setting(LOG_SETTINGS_KEY, guild_id, {}) or {}
