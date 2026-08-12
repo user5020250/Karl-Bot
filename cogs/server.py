@@ -2,7 +2,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from helpers import make_embed, send_log
+from helpers import make_embed, send_log, build_custom_embed, parse_embed_color
 from storage import storage
 
 BLACK = discord.Color.from_str("#000000")
@@ -25,33 +25,23 @@ def _fill_placeholders(text: str, member: discord.Member, guild: discord.Guild, 
 
 
 def _build_greet_payload(cfg: dict, member: discord.Member, guild: discord.Guild, mention: bool) -> dict:
-    """Turns a welcome/goodbye config into kwargs for channel.send()."""
-
+    """Turn a welcome/goodbye configuration into channel.send() kwargs."""
     mode = cfg.get("mode", "message")
-
     if mode == "embed":
-
         edata = cfg.get("embed", {}) or {}
-
-        embed = discord.Embed(color=BLACK)
-
-        if edata.get("title"):
-            embed.title = _fill_placeholders(edata["title"], member, guild, mention)
-
-        if edata.get("description"):
-            embed.description = _fill_placeholders(edata["description"], member, guild, mention)
-
-        if edata.get("footer"):
-            embed.set_footer(text=_fill_placeholders(edata["footer"], member, guild, mention))
-
-        if edata.get("image"):
-            embed.set_image(url=edata["image"])
-
+        fill = lambda value: _fill_placeholders(value, member, guild, mention) if value else value
+        embed = build_custom_embed(
+            author=fill(edata.get("author")), author_icon=edata.get("author_icon"),
+            title=fill(edata.get("title")), title_url=edata.get("title_url"), description=fill(edata.get("description")),
+            fields=fill(edata.get("fields")), inline_fields=fill(edata.get("inline_fields")),
+            thumbnail=edata.get("thumbnail"), image=edata.get("image"), footer=fill(edata.get("footer")),
+            footer_icon=edata.get("footer_icon"), timestamp=bool(edata.get("timestamp")),
+            color=parse_embed_color(edata.get("color"))
+        )
         return {"embed": embed}
-
     message = cfg.get("message", "Welcome {member} to {server}!")
-
     return {"content": _fill_placeholders(message, member, guild, mention)}
+
 
 
 class Server(commands.Cog):
@@ -223,36 +213,33 @@ class Server(commands.Cog):
         embed = make_embed("Welcome Messages Configured", f"New members will be welcomed in {channel.mention} with a plain message.")
         await interaction.response.send_message(embed=embed)
 
+
     @welcome_group.command(name="embed", description="Welcome new members with a custom embed.")
     @app_commands.describe(
-        channel="Channel to post welcome messages in",
-        title="Embed title (optional). Supports {member}/{user} and {server}",
-        description="Embed description. Supports {member}/{user} and {server}",
-        footer="Embed footer text (optional). Supports {member}/{user} and {server}",
-        image="Image URL to display in the embed (optional)",
+        channel="Channel to post welcome messages in", author="Author name.", author_icon="Author icon URL.",
+        title="Embed title.", title_url="URL opened when the title is clicked.", description="Embed description.",
+        fields="Fields: Name | Value; Name 2 | Value 2.", inline_fields="Inline fields: Name | Value; Name 2 | Value 2.",
+        thumbnail="Thumbnail URL.", image="Main image URL.", footer="Footer text.", footer_icon="Footer icon URL.",
+        timestamp="Add the current timestamp.", color="Embed color in hex, e.g. #000000."
     )
     @app_commands.checks.has_permissions(manage_guild=True)
-    async def welcome_embed(
-        self,
-        interaction: discord.Interaction,
-        channel: discord.TextChannel,
-        description: str = "Welcome {member} to {server}!",
-        title: str = None,
-        footer: str = None,
-        image: str = None,
-    ):
+    async def welcome_embed(self, interaction: discord.Interaction, channel: discord.TextChannel,
+                            author: str = None, author_icon: str = None, title: str = None, title_url: str = None,
+                            description: str = "Welcome {member} to {server}!", fields: str = None, inline_fields: str = None,
+                            thumbnail: str = None, image: str = None, footer: str = None, footer_icon: str = None,
+                            timestamp: bool = False, color: str = "#000000"):
+        try:
+            parse_embed_color(color)
+        except ValueError as exc:
+            await interaction.response.send_message(str(exc), ephemeral=True); return
         cfg = storage.get_guild_setting("welcome", interaction.guild.id) or {}
-        cfg["channel_id"] = channel.id
-        cfg["mode"] = "embed"
-        cfg["embed"] = {
-            "title": title,
-            "description": description,
-            "footer": footer,
-            "image": image,
-        }
+        cfg.update({"channel_id": channel.id, "mode": "embed", "embed": {
+            "author": author, "author_icon": author_icon, "title": title, "title_url": title_url,
+            "description": description, "fields": fields, "inline_fields": inline_fields, "thumbnail": thumbnail,
+            "image": image, "footer": footer, "footer_icon": footer_icon, "timestamp": timestamp, "color": color
+        }})
         storage.set_guild_setting("welcome", interaction.guild.id, cfg)
-        embed = make_embed("Welcome Messages Configured", f"New members will be welcomed in {channel.mention} with an embed.")
-        await interaction.response.send_message(embed=embed)
+        await interaction.response.send_message(embed=make_embed("Welcome Messages Configured", f"New members will be welcomed in {channel.mention} with an embed."))
 
     # ---------------------------------------------------------------------
     # Goodbye configuration
@@ -279,36 +266,33 @@ class Server(commands.Cog):
         embed = make_embed("Goodbye Messages Configured", f"Leave messages will be posted in {channel.mention} as a plain message.")
         await interaction.response.send_message(embed=embed)
 
+
     @goodbye_group.command(name="embed", description="Announce members leaving with a custom embed.")
     @app_commands.describe(
-        channel="Channel to post leave messages in",
-        title="Embed title (optional). Supports {member}/{user} and {server}",
-        description="Embed description. Supports {member}/{user} and {server}",
-        footer="Embed footer text (optional). Supports {member}/{user} and {server}",
-        image="Image URL to display in the embed (optional)",
+        channel="Channel to post leave messages in", author="Author name.", author_icon="Author icon URL.",
+        title="Embed title.", title_url="URL opened when the title is clicked.", description="Embed description.",
+        fields="Fields: Name | Value; Name 2 | Value 2.", inline_fields="Inline fields: Name | Value; Name 2 | Value 2.",
+        thumbnail="Thumbnail URL.", image="Main image URL.", footer="Footer text.", footer_icon="Footer icon URL.",
+        timestamp="Add the current timestamp.", color="Embed color in hex, e.g. #000000."
     )
     @app_commands.checks.has_permissions(manage_guild=True)
-    async def goodbye_embed(
-        self,
-        interaction: discord.Interaction,
-        channel: discord.TextChannel,
-        description: str = "{member} has left {server}.",
-        title: str = None,
-        footer: str = None,
-        image: str = None,
-    ):
+    async def goodbye_embed(self, interaction: discord.Interaction, channel: discord.TextChannel,
+                            author: str = None, author_icon: str = None, title: str = None, title_url: str = None,
+                            description: str = "{member} has left {server}.", fields: str = None, inline_fields: str = None,
+                            thumbnail: str = None, image: str = None, footer: str = None, footer_icon: str = None,
+                            timestamp: bool = False, color: str = "#000000"):
+        try:
+            parse_embed_color(color)
+        except ValueError as exc:
+            await interaction.response.send_message(str(exc), ephemeral=True); return
         cfg = storage.get_guild_setting("goodbye", interaction.guild.id) or {}
-        cfg["channel_id"] = channel.id
-        cfg["mode"] = "embed"
-        cfg["embed"] = {
-            "title": title,
-            "description": description,
-            "footer": footer,
-            "image": image,
-        }
+        cfg.update({"channel_id": channel.id, "mode": "embed", "embed": {
+            "author": author, "author_icon": author_icon, "title": title, "title_url": title_url,
+            "description": description, "fields": fields, "inline_fields": inline_fields, "thumbnail": thumbnail,
+            "image": image, "footer": footer, "footer_icon": footer_icon, "timestamp": timestamp, "color": color
+        }})
         storage.set_guild_setting("goodbye", interaction.guild.id, cfg)
-        embed = make_embed("Goodbye Messages Configured", f"Leave messages will be posted in {channel.mention} as an embed.")
-        await interaction.response.send_message(embed=embed)
+        await interaction.response.send_message(embed=make_embed("Goodbye Messages Configured", f"Leave messages will be posted in {channel.mention} as an embed."))
 
     # ---------------------------------------------------------------------
     # Greet testing (welcome + goodbye combined)
