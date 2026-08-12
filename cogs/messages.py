@@ -1,258 +1,9 @@
-import re
-
 import discord
 from discord import app_commands
 from discord.ext import commands
 
-from helpers import make_embed
-
 BLACK = discord.Color.from_str("#000000")
 
-MENTION_RE = re.compile(r"<@!?(\d+)>")
-
-
-# ============================================================
-# PURGE FILTER DEFINITIONS
-# ============================================================
-# key -> (button label, needs a "member" text field, needs a "text" field)
-
-PURGE_FILTERS = {
-    "user": ("By User", True, False),
-    "bots": ("Bots", False, False),
-    "links": ("Links", False, False),
-    "invites": ("Invites", False, False),
-    "images": ("Images", False, False),
-    "embeds": ("Embeds", False, False),
-    "files": ("Files/Attachments", False, False),
-    "mentions": ("Mentions", False, False),
-    "contains": ("Contains Text", False, True),
-}
-
-
-async def _resolve_member(guild: discord.Guild, raw: str):
-
-    raw = raw.strip()
-
-    match = MENTION_RE.match(raw)
-
-    user_id = match.group(1) if match else raw
-
-    if not user_id.isdigit():
-        return None
-
-    member = guild.get_member(int(user_id))
-
-    if member is not None:
-        return member
-
-    try:
-        return await guild.fetch_member(int(user_id))
-    except discord.HTTPException:
-        return None
-
-
-def _build_check(key: str, *, member: discord.Member = None, text: str = None):
-
-    if key == "user":
-        return lambda m: m.author.id == member.id
-
-    if key == "bots":
-        return lambda m: m.author.bot
-
-    if key == "links":
-        return lambda m: "http://" in m.content or "https://" in m.content
-
-    if key == "invites":
-        invite_markers = ("discord.gg/", "discord.com/invite/", "discordapp.com/invite/")
-        return lambda m: any(marker in m.content.lower() for marker in invite_markers)
-
-    if key == "images":
-        image_exts = (".png", ".jpg", ".jpeg", ".gif", ".webp")
-        return lambda m: any(a.filename.lower().endswith(image_exts) for a in m.attachments)
-
-    if key == "embeds":
-        return lambda m: len(m.embeds) > 0
-
-    if key == "files":
-        return lambda m: len(m.attachments) > 0
-
-    if key == "mentions":
-        return lambda m: len(m.mentions) > 0 or len(m.role_mentions) > 0
-
-    if key == "contains":
-        return lambda m: text.lower() in m.content.lower()
-
-    raise ValueError(f"Unknown purge filter: {key}")
-
-
-# ============================================================
-# MODALS
-# ============================================================
-
-class PurgeAmountModal(discord.ui.Modal):
-    """Used for filters that only need an amount (bots, links, invites, images, embeds, files, mentions)."""
-
-    def __init__(self, key: str, label: str):
-
-        super().__init__(title=f"Purge: {label}")
-
-        self.key = key
-
-        self.amount = discord.ui.TextInput(
-            label="Messages to scan (1-200)",
-            default="100",
-        )
-
-        self.add_item(self.amount)
-
-    async def on_submit(self, interaction: discord.Interaction):
-
-        try:
-            amount = int(self.amount.value)
-        except ValueError:
-            await interaction.response.send_message("Amount must be a number.", ephemeral=True)
-            return
-
-        amount = max(1, min(amount, 200))
-
-        await interaction.response.defer(ephemeral=True)
-
-        check = _build_check(self.key)
-
-        deleted = await interaction.channel.purge(limit=amount, check=check)
-
-        await interaction.followup.send(f"Deleted {len(deleted)} matching messages.", ephemeral=True)
-
-
-class PurgeUserModal(discord.ui.Modal, title="Purge: By User"):
-
-    def __init__(self):
-
-        super().__init__()
-
-        self.member_input = discord.ui.TextInput(
-            label="User (mention or ID)",
-        )
-        self.amount = discord.ui.TextInput(
-            label="Messages to scan (1-200)",
-            default="100",
-        )
-
-        self.add_item(self.member_input)
-        self.add_item(self.amount)
-
-    async def on_submit(self, interaction: discord.Interaction):
-
-        try:
-            amount = int(self.amount.value)
-        except ValueError:
-            await interaction.response.send_message("Amount must be a number.", ephemeral=True)
-            return
-
-        amount = max(1, min(amount, 200))
-
-        member = await _resolve_member(interaction.guild, self.member_input.value)
-
-        if member is None:
-            await interaction.response.send_message(
-                "Couldn't find that user. Provide a mention or a valid user ID.",
-                ephemeral=True
-            )
-            return
-
-        await interaction.response.defer(ephemeral=True)
-
-        check = _build_check("user", member=member)
-
-        deleted = await interaction.channel.purge(limit=amount, check=check)
-
-        await interaction.followup.send(f"Deleted {len(deleted)} matching messages.", ephemeral=True)
-
-
-class PurgeContainsModal(discord.ui.Modal, title="Purge: Contains Text"):
-
-    def __init__(self):
-
-        super().__init__()
-
-        self.text_input = discord.ui.TextInput(
-            label="Text to search for",
-        )
-        self.amount = discord.ui.TextInput(
-            label="Messages to scan (1-200)",
-            default="100",
-        )
-
-        self.add_item(self.text_input)
-        self.add_item(self.amount)
-
-    async def on_submit(self, interaction: discord.Interaction):
-
-        try:
-            amount = int(self.amount.value)
-        except ValueError:
-            await interaction.response.send_message("Amount must be a number.", ephemeral=True)
-            return
-
-        amount = max(1, min(amount, 200))
-
-        await interaction.response.defer(ephemeral=True)
-
-        check = _build_check("contains", text=self.text_input.value)
-
-        deleted = await interaction.channel.purge(limit=amount, check=check)
-
-        await interaction.followup.send(f"Deleted {len(deleted)} matching messages.", ephemeral=True)
-
-
-# ============================================================
-# PANEL VIEW
-# ============================================================
-
-class PurgeButton(discord.ui.Button):
-
-    def __init__(self, key: str, label: str):
-
-        super().__init__(
-            label=label,
-            style=discord.ButtonStyle.secondary,
-        )
-
-        self.key = key
-
-    async def callback(self, interaction: discord.Interaction):
-
-        label, needs_member, needs_text = PURGE_FILTERS[self.key]
-
-        if needs_member:
-            modal = PurgeUserModal()
-        elif needs_text:
-            modal = PurgeContainsModal()
-        else:
-            modal = PurgeAmountModal(self.key, label)
-
-        await interaction.response.send_modal(modal)
-
-
-class PurgePanelView(discord.ui.View):
-
-    def __init__(self, timeout: int = 180):
-
-        super().__init__(timeout=timeout)
-
-        for key, (label, _, _) in PURGE_FILTERS.items():
-            self.add_item(PurgeButton(key, label))
-
-
-def build_purge_embed() -> discord.Embed:
-
-    embed = discord.Embed(
-        title="Purge Messages",
-        description="Pick a filter below. You'll be asked for an amount (and any extra details) before anything is deleted.",
-        color=BLACK,
-    )
-
-    return embed
 
 
 class Messages(commands.Cog):
@@ -330,15 +81,96 @@ class Messages(commands.Cog):
         await interaction.followup.send(f"Deleted {len(deleted)} messages.", ephemeral=True)
 
     # ---------------------------------------------------------------------
-    # Purge panel
+    # PURGE COMMANDS
     # ---------------------------------------------------------------------
-    @app_commands.command(name="purge", description="Delete messages matching a filter.")
+    purge_group = app_commands.Group(name="purge", description="Delete messages matching a filter.")
+
+    @purge_group.command(name="user", description="Delete messages sent by a specific user.")
+    @app_commands.describe(member="The user whose messages should be deleted", amount="Number of recent messages to scan (1-200)")
     @app_commands.checks.has_permissions(manage_messages=True)
     @app_commands.checks.bot_has_permissions(manage_messages=True)
-    async def purge(self, interaction: discord.Interaction):
-        embed = build_purge_embed()
-        view = PurgePanelView()
-        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+    async def purge_user(self, interaction: discord.Interaction, member: discord.Member, amount: app_commands.Range[int, 1, 200] = 100):
+        await interaction.response.defer(ephemeral=True)
+        deleted = await interaction.channel.purge(limit=amount, check=lambda m: m.author.id == member.id)
+        await interaction.followup.send(f"Deleted {len(deleted)} message(s) from {member.mention}.", ephemeral=True)
+
+    @purge_group.command(name="bots", description="Delete messages sent by bots.")
+    @app_commands.describe(amount="Number of recent messages to scan (1-200)")
+    @app_commands.checks.has_permissions(manage_messages=True)
+    @app_commands.checks.bot_has_permissions(manage_messages=True)
+    async def purge_bots(self, interaction: discord.Interaction, amount: app_commands.Range[int, 1, 200] = 100):
+        await interaction.response.defer(ephemeral=True)
+        deleted = await interaction.channel.purge(limit=amount, check=lambda m: m.author.bot)
+        await interaction.followup.send(f"Deleted {len(deleted)} bot message(s).", ephemeral=True)
+
+    @purge_group.command(name="links", description="Delete messages containing links.")
+    @app_commands.describe(amount="Number of recent messages to scan (1-200)")
+    @app_commands.checks.has_permissions(manage_messages=True)
+    @app_commands.checks.bot_has_permissions(manage_messages=True)
+    async def purge_links(self, interaction: discord.Interaction, amount: app_commands.Range[int, 1, 200] = 100):
+        await interaction.response.defer(ephemeral=True)
+        check = lambda m: "http://" in m.content.lower() or "https://" in m.content.lower()
+        deleted = await interaction.channel.purge(limit=amount, check=check)
+        await interaction.followup.send(f"Deleted {len(deleted)} message(s) containing links.", ephemeral=True)
+
+    @purge_group.command(name="invites", description="Delete Discord invite messages.")
+    @app_commands.describe(amount="Number of recent messages to scan (1-200)")
+    @app_commands.checks.has_permissions(manage_messages=True)
+    @app_commands.checks.bot_has_permissions(manage_messages=True)
+    async def purge_invites(self, interaction: discord.Interaction, amount: app_commands.Range[int, 1, 200] = 100):
+        await interaction.response.defer(ephemeral=True)
+        markers = ("discord.gg/", "discord.com/invite/", "discordapp.com/invite/")
+        deleted = await interaction.channel.purge(limit=amount, check=lambda m: any(x in m.content.lower() for x in markers))
+        await interaction.followup.send(f"Deleted {len(deleted)} invite message(s).", ephemeral=True)
+
+    @purge_group.command(name="images", description="Delete messages with image attachments.")
+    @app_commands.describe(amount="Number of recent messages to scan (1-200)")
+    @app_commands.checks.has_permissions(manage_messages=True)
+    @app_commands.checks.bot_has_permissions(manage_messages=True)
+    async def purge_images(self, interaction: discord.Interaction, amount: app_commands.Range[int, 1, 200] = 100):
+        await interaction.response.defer(ephemeral=True)
+        image_exts = (".png", ".jpg", ".jpeg", ".gif", ".webp")
+        check = lambda m: any(a.filename.lower().endswith(image_exts) for a in m.attachments)
+        deleted = await interaction.channel.purge(limit=amount, check=check)
+        await interaction.followup.send(f"Deleted {len(deleted)} message(s) with images.", ephemeral=True)
+
+    @purge_group.command(name="embeds", description="Delete messages containing embeds.")
+    @app_commands.describe(amount="Number of recent messages to scan (1-200)")
+    @app_commands.checks.has_permissions(manage_messages=True)
+    @app_commands.checks.bot_has_permissions(manage_messages=True)
+    async def purge_embeds(self, interaction: discord.Interaction, amount: app_commands.Range[int, 1, 200] = 100):
+        await interaction.response.defer(ephemeral=True)
+        deleted = await interaction.channel.purge(limit=amount, check=lambda m: len(m.embeds) > 0)
+        await interaction.followup.send(f"Deleted {len(deleted)} message(s) containing embeds.", ephemeral=True)
+
+    @purge_group.command(name="files", description="Delete messages with file attachments.")
+    @app_commands.describe(amount="Number of recent messages to scan (1-200)")
+    @app_commands.checks.has_permissions(manage_messages=True)
+    @app_commands.checks.bot_has_permissions(manage_messages=True)
+    async def purge_files(self, interaction: discord.Interaction, amount: app_commands.Range[int, 1, 200] = 100):
+        await interaction.response.defer(ephemeral=True)
+        deleted = await interaction.channel.purge(limit=amount, check=lambda m: len(m.attachments) > 0)
+        await interaction.followup.send(f"Deleted {len(deleted)} message(s) with attachments.", ephemeral=True)
+
+    @purge_group.command(name="mentions", description="Delete messages containing user or role mentions.")
+    @app_commands.describe(amount="Number of recent messages to scan (1-200)")
+    @app_commands.checks.has_permissions(manage_messages=True)
+    @app_commands.checks.bot_has_permissions(manage_messages=True)
+    async def purge_mentions(self, interaction: discord.Interaction, amount: app_commands.Range[int, 1, 200] = 100):
+        await interaction.response.defer(ephemeral=True)
+        check = lambda m: len(m.mentions) > 0 or len(m.role_mentions) > 0
+        deleted = await interaction.channel.purge(limit=amount, check=check)
+        await interaction.followup.send(f"Deleted {len(deleted)} message(s) containing mentions.", ephemeral=True)
+
+    @purge_group.command(name="contains", description="Delete messages containing specific text.")
+    @app_commands.describe(text="Text to search for", amount="Number of recent messages to scan (1-200)")
+    @app_commands.checks.has_permissions(manage_messages=True)
+    @app_commands.checks.bot_has_permissions(manage_messages=True)
+    async def purge_contains(self, interaction: discord.Interaction, text: str, amount: app_commands.Range[int, 1, 200] = 100):
+        await interaction.response.defer(ephemeral=True)
+        needle = text.lower()
+        deleted = await interaction.channel.purge(limit=amount, check=lambda m: needle in m.content.lower())
+        await interaction.followup.send(f"Deleted {len(deleted)} message(s) containing `{text}`.", ephemeral=True)
 
 
 async def setup(bot: commands.Bot):
