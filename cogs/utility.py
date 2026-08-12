@@ -204,220 +204,77 @@ class Utility(commands.Cog):
     # EMBED
     # --------------------
 
-    @embed_group.command(
-        name="send",
-        description="Sends a custom embed."
-    )
+
+
+
+
+    @embed_group.command(name="send", description="Create and send a custom embed.")
     @app_commands.describe(
-        description="The embed description (optional).",
-        title="Optional title.",
-        footer="Optional footer text.",
-        img="Optional image URL."
+        author="Author name.", author_icon="Author icon URL.", title="Embed title.", title_url="URL opened when the title is clicked.",
+        description="Embed description.", fields="Fields: Name | Value; Name 2 | Value 2.",
+        inline_fields="Inline fields: Name | Value; Name 2 | Value 2.", thumbnail="Thumbnail URL.", image="Main image URL.",
+        footer="Footer text.", footer_icon="Footer icon URL.", timestamp="Add the current timestamp.", color="Embed color in hex, e.g. #000000."
     )
     @app_commands.checks.has_permissions(manage_messages=True)
     async def embed_send(
-        self,
-        interaction: discord.Interaction,
-        description: str = None,
-        title: str = None,
-        footer: str = None,
-        img: str = None
+        self, interaction: discord.Interaction, author: str = None, author_icon: str = None,
+        title: str = None, title_url: str = None, description: str = None, fields: str = None,
+        inline_fields: str = None, thumbnail: str = None, image: str = None, footer: str = None,
+        footer_icon: str = None, timestamp: bool = False, color: str = "#000000"
     ):
-
-        if not any([description, title, footer, img]):
-            await self._send_ephemeral(
-                interaction,
-                "Provide at least one of: description, title, footer, or img."
-            )
+        if not any([author, title, description, fields, inline_fields, thumbnail, image, footer]):
+            await self._send_ephemeral(interaction, "Provide at least one embed element.")
             return
-
-        embed = discord.Embed(color=BLACK)
-
-        if description:
-            embed.description = description
-
-        if title:
-            embed.title = title
-
-        if footer:
-            embed.set_footer(text=footer)
-
-        if img:
-            embed.set_image(url=img)
-
+        try:
+            from helpers import build_custom_embed, parse_embed_color
+            embed = build_custom_embed(
+                author=author, author_icon=author_icon, title=title, title_url=title_url,
+                description=description, fields=fields, inline_fields=inline_fields,
+                thumbnail=thumbnail, image=image, footer=footer, footer_icon=footer_icon,
+                timestamp=timestamp, color=parse_embed_color(color)
+            )
+        except ValueError as exc:
+            await self._send_ephemeral(interaction, str(exc))
+            return
+        await interaction.channel.send(embed=embed)
         await self._send_ephemeral(interaction, "Embed sent.")
 
-        await interaction.channel.send(embed=embed)
-
-
-    @embed_group.command(
-        name="edit",
-        description="Edits an embed previously sent by the bot."
-    )
+    @embed_group.command(name="edit", description="Edit an embed previously sent by the bot.")
     @app_commands.describe(
-        message_id="The ID of the embed message to edit.",
-        description="The new embed description (optional).",
-        title="Optional title.",
-        footer="Optional footer text.",
-        img="Optional image URL."
+        message_id="The ID of the embed message to edit.", author="Author name.", author_icon="Author icon URL.",
+        title="Embed title.", title_url="URL opened when the title is clicked.", description="Embed description.",
+        fields="Fields: Name | Value; Name 2 | Value 2.", inline_fields="Inline fields: Name | Value; Name 2 | Value 2.",
+        thumbnail="Thumbnail URL.", image="Main image URL.", footer="Footer text.", footer_icon="Footer icon URL.",
+        timestamp="Add the current timestamp.", color="Embed color in hex, e.g. #000000."
     )
     @app_commands.checks.has_permissions(manage_messages=True)
     async def embed_edit(
-        self,
-        interaction: discord.Interaction,
-        message_id: str,
-        description: str = None,
-        title: str = None,
-        footer: str = None,
-        img: str = None
+        self, interaction: discord.Interaction, message_id: str, author: str = None, author_icon: str = None,
+        title: str = None, title_url: str = None, description: str = None, fields: str = None,
+        inline_fields: str = None, thumbnail: str = None, image: str = None, footer: str = None,
+        footer_icon: str = None, timestamp: bool = False, color: str = "#000000"
     ):
-
         try:
-            msg = await interaction.channel.fetch_message(
-                int(message_id)
-            )
-        except:
+            msg = await interaction.channel.fetch_message(int(message_id))
+        except (ValueError, discord.HTTPException, discord.NotFound):
             await self._send_ephemeral(interaction, "Invalid message ID.")
             return
-
         if msg.author.id != self.bot.user.id:
-            await self._send_ephemeral(
-                interaction, "I can only edit my own messages."
-            )
+            await self._send_ephemeral(interaction, "I can only edit my own messages.")
             return
-
-        if not any([description, title, footer, img]):
-            await self._send_ephemeral(
-                interaction,
-                "Provide at least one of: description, title, footer, or img."
+        try:
+            from helpers import build_custom_embed, parse_embed_color
+            embed = build_custom_embed(
+                author=author, author_icon=author_icon, title=title, title_url=title_url,
+                description=description, fields=fields, inline_fields=inline_fields,
+                thumbnail=thumbnail, image=image, footer=footer, footer_icon=footer_icon,
+                timestamp=timestamp, color=parse_embed_color(color)
             )
+        except ValueError as exc:
+            await self._send_ephemeral(interaction, str(exc))
             return
-
-        embed = discord.Embed(color=BLACK)
-
-        if description:
-            embed.description = description
-
-        if title:
-            embed.title = title
-
-        if footer:
-            embed.set_footer(text=footer)
-
-        if img:
-            embed.set_image(url=img)
-
         await msg.edit(embed=embed)
-
         await self._send_ephemeral(interaction, "Embed edited.")
-
-
-    # --------------------
-    # ANNOUNCE
-    # --------------------
-
-    @app_commands.command(
-        name="announce",
-        description="Posts an announcement."
-    )
-    @app_commands.describe(
-        type="Plain text message or a styled embed.",
-        description="The announcement content (optional for embed type).",
-        title="Optional title (embed only).",
-        footer="Optional footer text (embed only).",
-        img="Optional image URL (embed only)."
-    )
-    @app_commands.choices(type=[
-        app_commands.Choice(name="message", value="message"),
-        app_commands.Choice(name="embed", value="embed"),
-    ])
-    @app_commands.checks.has_permissions(manage_messages=True)
-    async def announce(
-        self,
-        interaction: discord.Interaction,
-        type: app_commands.Choice[str],
-        description: str = None,
-        title: str = None,
-        footer: str = None,
-        img: str = None
-    ):
-
-        if type.value == "message":
-            if not description:
-                await self._send_ephemeral(
-                    interaction,
-                    "A plain message announcement needs a description."
-                )
-                return
-
-            await self._send_ephemeral(interaction, "Announcement posted.")
-
-            await interaction.channel.send(description)
-            return
-
-        if not any([description, title, footer, img]):
-            await self._send_ephemeral(
-                interaction,
-                "Provide at least one of: description, title, footer, or img."
-            )
-            return
-
-        embed = discord.Embed(
-            title=title if title else "Announcement",
-            color=BLACK
-        )
-
-        if description:
-            embed.description = description
-
-        embed.set_footer(
-            text=footer if footer else f"Posted by {interaction.user}"
-        )
-
-        if img:
-            embed.set_image(url=img)
-
-        await self._send_ephemeral(interaction, "Announcement posted.")
-
-        await interaction.channel.send(embed=embed)
-
-
-    # --------------------
-    # POLL
-    # --------------------
-
-    @app_commands.command(
-        name="poll",
-        description="Creates a poll."
-    )
-    @app_commands.checks.has_permissions(manage_messages=True)
-    async def poll(
-        self,
-        interaction: discord.Interaction,
-        question: str,
-        option1: str,
-        option2: str
-    ):
-
-        embed = discord.Embed(
-            title="Poll",
-            description=(
-                f"**{question}**\n\n"
-                f"1️⃣ {option1}\n"
-                f"2️⃣ {option2}"
-            ),
-            color=BLACK
-        )
-
-        await interaction.response.send_message(
-            "Poll created.",
-            ephemeral=True
-        )
-
-        msg = await interaction.channel.send(embed=embed)
-
-        await msg.add_reaction("1️⃣")
-        await msg.add_reaction("2️⃣")
 
 
     # --------------------
@@ -826,68 +683,12 @@ class Utility(commands.Cog):
     # PIN
     # --------------------
 
-    @app_commands.command(
-        name="pin",
-        description="Pins a message."
-    )
-    @app_commands.checks.has_permissions(manage_messages=True)
-    async def pin(
-        self,
-        interaction: discord.Interaction,
-        message_id: str
-    ):
-
-        try:
-            msg = await interaction.channel.fetch_message(
-                int(message_id)
-            )
-
-            await msg.pin()
-
-            await interaction.response.send_message(
-                "Message pinned.",
-                ephemeral=True
-            )
-
-        except:
-            await interaction.response.send_message(
-                "Invalid message ID.",
-                ephemeral=True
-            )
 
 
     # --------------------
     # UNPIN
     # --------------------
 
-    @app_commands.command(
-        name="unpin",
-        description="Unpins a message."
-    )
-    @app_commands.checks.has_permissions(manage_messages=True)
-    async def unpin(
-        self,
-        interaction: discord.Interaction,
-        message_id: str
-    ):
-
-        try:
-            msg = await interaction.channel.fetch_message(
-                int(message_id)
-            )
-
-            await msg.unpin()
-
-            await interaction.response.send_message(
-                "Message unpinned.",
-                ephemeral=True
-            )
-
-        except:
-            await interaction.response.send_message(
-                "Invalid message ID.",
-                ephemeral=True
-            )
 
 
 async def setup(bot):
