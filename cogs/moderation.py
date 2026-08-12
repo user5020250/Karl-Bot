@@ -146,26 +146,6 @@ class Moderation(commands.Cog):
         await send_log(interaction.guild, embed)
 
     # ------------------------------------------------------------- history
-    @app_commands.command(name="history", description="Displays a member's moderation history.")
-    @app_commands.describe(member="The member to look up")
-    @app_commands.checks.has_permissions(moderate_members=True)
-    async def history(self, interaction: discord.Interaction, member: discord.Member):
-        entries = storage.get_history(interaction.guild.id, member.id)
-        embed = make_embed(f"Moderation History for {member}")
-        if not entries:
-            embed.description = "No moderation history found for this member."
-        else:
-            for entry in entries[-10:]:
-                moderator = interaction.guild.get_member(entry["moderator_id"])
-                mod_display = moderator.mention if moderator else f"ID {entry['moderator_id']}"
-                embed.add_field(
-                    name=f"{entry['type']} — {entry['timestamp'][:19].replace('T', ' ')} UTC",
-                    value=f"Moderator: {mod_display}\nReason: {entry['reason']}",
-                    inline=False,
-                )
-            if len(entries) > 10:
-                embed.set_footer(text=f"Showing the 10 most recent of {len(entries)} entries.")
-        await interaction.response.send_message(embed=embed)
 
 
 async def setup(bot: commands.Bot):
