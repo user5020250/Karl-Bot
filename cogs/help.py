@@ -35,8 +35,6 @@ CATEGORIES = {
         ("/unlock", "Unlocks a channel.", "Manage Channels"),
         ("/nuke", "Deletes all messages by recreating the channel.", "Manage Channels"),
     ],
-    "Voice": [
-    ],
     "Roles & Nicknames": [
         ("/addrole", "Gives a role.", "Manage Roles"),
         ("/removerole", "Removes a role.", "Manage Roles"),
