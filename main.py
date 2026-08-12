@@ -27,7 +27,6 @@ EXTENSIONS = [
     "cogs.roles",
     "cogs.automod",
     "cogs.server",
-    "cogs.modlogs",
     "cogs.utility",
     "cogs.info",
     "cogs.afk",
