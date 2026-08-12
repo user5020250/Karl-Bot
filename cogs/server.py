@@ -12,16 +12,57 @@ BLACK = discord.Color.from_str("#000000")
 # GREETING HELPERS (shared by welcome + goodbye)
 # ============================================================
 
-def _fill_placeholders(text: str, member: discord.Member, guild: discord.Guild, mention: bool) -> str:
+def _fill_placeholders(
+    text: str,
+    member: discord.Member,
+    guild: discord.Guild,
+    mention: bool,
+    channel: discord.abc.GuildChannel = None,
+) -> str:
+    """Replace welcome/goodbye placeholders with member/server information."""
+    if text is None:
+        return text
 
     who = member.mention if mention else str(member)
 
-    return (
-        text
-        .replace("{member}", who)
-        .replace("{user}", who)
-        .replace("{server}", guild.name)
-    )
+    values = {
+        # Member
+        "{member}": who,
+        "{user}": who,
+        "{mention}": member.mention,
+        "{username}": member.name,
+        "{displayname}": member.display_name,
+        "{display_name}": member.display_name,
+        "{userid}": str(member.id),
+        "{user_id}": str(member.id),
+        "{avatar}": str(member.display_avatar.url),
+        "{useravatar}": str(member.display_avatar.url),
+
+        # Server
+        "{server}": guild.name,
+        "{servername}": guild.name,
+        "{serverid}": str(guild.id),
+        "{server_id}": str(guild.id),
+        "{membercount}": str(guild.member_count or 0),
+
+        # Channel
+        "{channel}": channel.name if channel else "",
+        "{channelid}": str(channel.id) if channel else "",
+        "{channel_id}": str(channel.id) if channel else "",
+
+        # Dates / timestamps
+        "{accountcreated}": discord.utils.format_dt(member.created_at, "D"),
+        "{account_created}": discord.utils.format_dt(member.created_at, "D"),
+        "{joined}": discord.utils.format_dt(member.joined_at, "D") if member.joined_at else "",
+        "{joinedat}": discord.utils.format_dt(member.joined_at, "D") if member.joined_at else "",
+        "{joined_at}": discord.utils.format_dt(member.joined_at, "D") if member.joined_at else "",
+        "{timestamp}": discord.utils.format_dt(discord.utils.utcnow(), "F"),
+    }
+
+    for placeholder, value in values.items():
+        text = text.replace(placeholder, str(value))
+
+    return text
 
 
 def _build_greet_payload(cfg: dict, member: discord.Member, guild: discord.Guild, mention: bool) -> dict:
@@ -29,7 +70,7 @@ def _build_greet_payload(cfg: dict, member: discord.Member, guild: discord.Guild
     mode = cfg.get("mode", "message")
     if mode == "embed":
         edata = cfg.get("embed", {}) or {}
-        fill = lambda value: _fill_placeholders(value, member, guild, mention) if value else value
+        fill = lambda value: _fill_placeholders(value, member, guild, mention, channel) if value else value
         embed = build_custom_embed(
             author=fill(edata.get("author")), author_icon=edata.get("author_icon"),
             title=fill(edata.get("title")), title_url=edata.get("title_url"), description=fill(edata.get("description")),
@@ -40,7 +81,7 @@ def _build_greet_payload(cfg: dict, member: discord.Member, guild: discord.Guild
         )
         return {"embed": embed}
     message = cfg.get("message", "Welcome {member} to {server}!")
-    return {"content": _fill_placeholders(message, member, guild, mention)}
+    return {"content": _fill_placeholders(message, member, guild, mention, channel)}
 
 
 
@@ -170,7 +211,7 @@ class Server(commands.Cog):
         if welcome_cfg and welcome_cfg.get("channel_id"):
             channel = member.guild.get_channel(int(welcome_cfg["channel_id"]))
             if channel is not None:
-                payload = _build_greet_payload(welcome_cfg, member, member.guild, mention=True)
+                payload = _build_greet_payload(welcome_cfg, member, member.guild, mention=True, channel=channel)
                 try:
                     await channel.send(**payload)
                 except discord.HTTPException:
@@ -182,7 +223,7 @@ class Server(commands.Cog):
         if goodbye_cfg and goodbye_cfg.get("channel_id"):
             channel = member.guild.get_channel(int(goodbye_cfg["channel_id"]))
             if channel is not None:
-                payload = _build_greet_payload(goodbye_cfg, member, member.guild, mention=False)
+                payload = _build_greet_payload(goodbye_cfg, member, member.guild, mention=False, channel=channel)
                 try:
                     await channel.send(**payload)
                 except discord.HTTPException:
@@ -328,7 +369,7 @@ class Server(commands.Cog):
 
         mention = key == "welcome"
 
-        payload = _build_greet_payload(cfg, interaction.user, interaction.guild, mention=mention)
+        payload = _build_greet_payload(cfg, interaction.user, interaction.guild, mention=mention, channel=channel)
 
         await channel.send(**payload)
 
