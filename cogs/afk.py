@@ -121,7 +121,7 @@ class Afk(commands.Cog):
             if watchers:
                 pings = " ".join(f"<@{watcher_id}>" for watcher_id in watchers)
                 try:
-                    await message.channel.send(f"{pings} {message.author.mention} is back!")
+                    await message.channel.send(f"{pings}, {message.author.mention} is back.")
                 except discord.HTTPException:
                     pass
 
