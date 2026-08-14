@@ -25,14 +25,14 @@ class AfkNotifyView(discord.ui.View):
             return
         await interaction.response.send_modal(LeaveMessageModal(self.cog, self.guild_id, self.afk_user_id))
 
-    @discord.ui.button(label="Tell me when they are back", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="Notify me when they are back", style=discord.ButtonStyle.secondary)
     async def notify_me(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not storage.get_afk(self.guild_id, self.afk_user_id):
             await interaction.response.send_message("They're not AFK anymore.", ephemeral=True)
             return
 
         self.cog.add_watcher(self.guild_id, self.afk_user_id, interaction.user.id)
-        embed = make_embed("", "✅ Got it! I'll ping you when they're back.")
+        embed = make_embed("", "Got it! I'll ping you when they're back.")
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
@@ -52,7 +52,7 @@ class LeaveMessageModal(discord.ui.Modal, title="Leave a message"):
 
     async def on_submit(self, interaction: discord.Interaction):
         self.cog.add_left_message(self.guild_id, self.afk_user_id, interaction.user.id, str(self.message))
-        embed = make_embed("", "✅ Your message will be passed along when they're back.")
+        embed = make_embed("", "Your message will be passed along when they're back.")
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
@@ -81,10 +81,10 @@ class Afk(commands.Cog):
         return self.left_messages.pop((guild_id, afk_user_id), [])
 
     @app_commands.command(name="afk", description="Sets your AFK status with an optional reason.")
-    @app_commands.describe(reason="Why you're AFK (optional)")
+    @app_commands.describe(reason="Why you're afk")
     async def afk(self, interaction: discord.Interaction, reason: str = None):
         storage.set_afk(interaction.guild.id, interaction.user.id, reason or "No reason given")
-        embed = make_embed("AFK", f"{interaction.user.mention} is now afk, reason: {reason or 'No reason given'}")
+        embed = make_embed("AFK", f"{interaction.user.mention} is now afk, reason: {reason or 'No reason given'.}")
         await interaction.response.send_message(embed=embed)
 
     @commands.Cog.listener()
